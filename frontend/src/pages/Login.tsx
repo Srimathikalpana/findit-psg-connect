@@ -7,6 +7,28 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { Header } from "@/components/Header"
 import { Mail, Lock, User, School } from "lucide-react"
+// ...existing imports...
+import axios from 'axios';
+
+// ...existing code...
+
+const apiLogin = async (email: string, password: string) => {
+  try {
+    const response = await axios.post('http://localhost:5000/api/login', { username: email, password });
+    return response.data;
+  } catch (error: any) {
+    return { success: false, message: error.response?.data?.message || "Login failed" };
+  }
+};
+
+const apiRegister = async (name: string, email: string, studentId: string, password: string) => {
+  try {
+    const response = await axios.post('http://localhost:5000/api/register', { name, email, studentId, password });
+    return response.data;
+  } catch (error: any) {
+    return { success: false, message: error.response?.data?.message || "Registration failed" };
+  }
+};
 
 export const Login = () => {
   const [loginData, setLoginData] = useState({ email: "", password: "" })
@@ -19,35 +41,36 @@ export const Login = () => {
   })
   const { toast } = useToast()
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault()
-    
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
     if (!loginData.email.endsWith("@psgtech.ac.in")) {
       toast({
         title: "Invalid email domain",
         description: "Please use your PSG Tech email (@psgtech.ac.in)",
         variant: "destructive"
-      })
-      return
+      });
+      return;
     }
 
-    // Simulate login
+    const result = await apiLogin(loginData.email, loginData.password);
     toast({
-      title: "Login successful!",
-      description: "Welcome back to FIND IT",
-    })
-  }
+      title: result.success ? "Login successful!" : "Login failed",
+      description: result.message,
+      variant: result.success ? undefined : "destructive"
+    });
+  };
 
-  const handleRegister = (e: React.FormEvent) => {
-    e.preventDefault()
-    
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+
     if (!registerData.email.endsWith("@psgtech.ac.in")) {
       toast({
         title: "Invalid email domain",
         description: "Please use your PSG Tech email (@psgtech.ac.in)",
         variant: "destructive"
-      })
-      return
+      });
+      return;
     }
 
     if (registerData.password !== registerData.confirmPassword) {
@@ -55,16 +78,22 @@ export const Login = () => {
         title: "Passwords don't match",
         description: "Please make sure your passwords match",
         variant: "destructive"
-      })
-      return
+      });
+      return;
     }
 
-    // Simulate registration
+    const result = await apiRegister(
+      registerData.name,
+      registerData.email,
+      registerData.studentId,
+      registerData.password
+    );
     toast({
-      title: "Account created successfully!",
-      description: "Welcome to FIND IT - PSG Tech Lost & Found",
-    })
-  }
+      title: result.success ? "Account created successfully!" : "Registration failed",
+      description: result.message,
+      variant: result.success ? undefined : "destructive"
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-secondary/20">
