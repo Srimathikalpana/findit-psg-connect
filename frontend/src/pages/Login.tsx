@@ -74,7 +74,7 @@ export const Login = () => {
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
             <img 
-              src="/images/psg-tech-logo.png" 
+              src="/public/images/college_logo.png" 
               alt="PSG Tech Logo" 
               className="h-20 w-20 mx-auto mb-4"
             />
