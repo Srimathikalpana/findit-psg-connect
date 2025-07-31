@@ -16,7 +16,7 @@ export const Header = ({ isAuthenticated = false, onLogout, userEmail }: HeaderP
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center space-x-3">
           <img 
-            src="/lovable-uploads/8b0a2ced-6628-4683-a80f-ca165650f80c.png" 
+            src="/public/images/college_logo.png" 
             alt="PSG Tech Logo" 
             className="h-10 w-10"
           />

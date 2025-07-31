@@ -14,7 +14,7 @@ export const About = () => {
         <section className="text-center space-y-6">
           <div className="flex justify-center mb-6">
             <img 
-              src="/lovable-uploads/8b0a2ced-6628-4683-a80f-ca165650f80c.png" 
+              src="/images/college_logo.png" 
               alt="PSG Tech Logo" 
               className="h-24 w-24"
             />
