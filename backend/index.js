@@ -5,20 +5,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Example route for login
-app.post('/api/login', (req, res) => {
+// In-memory user store
+const users = [
+  { email: 'admin@psgtech.ac.in', password: 'admin', name: 'Admin', studentId: 'ADMIN' }
+];
+
+// Login route
+app.post('/api/login', async(req, res) => {
   const { username, password } = req.body;
-  // Simple check (replace with real authentication later)
-  if (username === 'admin' && password === 'admin') {
+  const user = users.find(u => u.email === username && u.password === password);
+  if (user) {
     res.json({ success: true, message: 'Login successful!' });
   } else {
     res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 });
 
-// Example route for registration
-app.post('/api/register', (req, res) => {
-  // You can add registration logic here
+// Registration route
+app.post('/api/register', async(req, res) => {
+  console.log('Register request:', req.body); // Add this line
+  const { name, email, studentId, password } = req.body;
+  if (users.find(u => u.email === email)) {
+    return res.status(400).json({ success: false, message: 'Email already registered' });
+  }
+  const hashedPassword = await bcrypt.hash(password, 10); // Hash password
+  users.push({ name, email, studentId, password: hashedPassword });
   res.json({ success: true, message: 'Registration successful!' });
 });
 

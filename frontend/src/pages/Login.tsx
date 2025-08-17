@@ -59,6 +59,10 @@ export const Login = () => {
       description: result.message,
       variant: result.success ? undefined : "destructive"
     });
+   
+    if (result.success) {
+      setLoginData({ email: "", password: "" }); // Clear login fields
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -93,6 +97,15 @@ export const Login = () => {
       description: result.message,
       variant: result.success ? undefined : "destructive"
     });
+    if (result.success) {
+    setRegisterData({
+      name: "",
+      email: "",
+      studentId: "",
+      password: "",
+      confirmPassword: ""
+    });
+  }
   };
 
   return (
