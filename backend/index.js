@@ -1,3 +1,4 @@
+const itemsRoutes = require('./routes/items');
 const mongoose = require('mongoose');
 require('dotenv').config();  // To load variables from .env
 
@@ -22,6 +23,7 @@ app.use(express.json());
 
 // Use the auth routes
 app.use('/api', authRoutes);
+app.use('/api', itemsRoutes);
 
 app.listen(5000, () => {
   console.log('Backend server running on http://localhost:5000');
