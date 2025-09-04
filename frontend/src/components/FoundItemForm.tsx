@@ -1,4 +1,5 @@
 import { useState } from "react"
+import axios from "axios"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -22,31 +23,108 @@ const locations = [
   "Other"
 ]
 
+const categories = [
+  "Electronics",
+  "Clothing",
+  "Accessories",
+  "Books",
+  "Stationery",
+  "Sports Equipment",
+  "Personal Items",
+  "Other"
+]
+
 export const FoundItemForm = () => {
   const [formData, setFormData] = useState({
-    itemDescription: "",
-    dateSeen: "",
-    placeSeen: "",
-    remarks: ""
+    itemName: "",
+    description: "",
+    dateFound: "",
+    placeFound: "",
+    category: "",
+    color: "",
+    brand: "",
+    storageLocation: "",
+    contactInfo: ""
   })
   const { toast } = useToast()
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    // Simulate form submission
-    toast({
-      title: "Found item reported successfully!",
-      description: "The owner will be notified about your discovery.",
-    })
-    
-    // Reset form
-    setFormData({
-      itemDescription: "",
-      dateSeen: "",
-      placeSeen: "",
-      remarks: ""
-    })
+    setIsSubmitting(true)
+
+    try {
+      const token = localStorage.getItem('token')
+      console.log('Submitting found item with token:', token?.substring(0, 20) + '...');
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login to report a found item",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await axios.post(
+        'http://localhost:8080/api/found-items',
+        {
+          itemName: formData.itemName,
+          description: formData.description,
+          placeFound: formData.placeFound,
+          dateFound: formData.dateFound,
+          category: formData.category,
+          color: formData.color,
+          brand: formData.brand,
+          storageLocation: formData.storageLocation,
+          contactInfo: formData.contactInfo
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          withCredentials: true
+        }
+      )
+
+      if (response.data.success) {
+        toast({
+          title: "Found item reported successfully!",
+          description: "We'll check for potential matches and notify the owner if found.",
+        })
+
+        // Show matches if any
+        if (response.data.matches && response.data.matches.length > 0) {
+          toast({
+            title: "Potential matches found!",
+            description: `Found ${response.data.matches.length} potential matches. Check your dashboard for details.`,
+          })
+        }
+
+        // Reset form
+        setFormData({
+          itemName: "",
+          description: "",
+          dateFound: "",
+          placeFound: "",
+          category: "",
+          color: "",
+          brand: "",
+          storageLocation: "",
+          contactInfo: ""
+        })
+      }
+    } catch (error: any) {
+      console.error('Submission error:', error.response?.data || error.message);
+      toast({
+        title: "Error reporting found item",
+        description: error.response?.data?.message || "Something went wrong",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -66,15 +144,26 @@ export const FoundItemForm = () => {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="itemDescription" className="flex items-center gap-2">
+            <Label htmlFor="itemName" className="flex items-center gap-2">
               <Package className="h-4 w-4" />
-              Item Description *
+              Item Name *
             </Label>
+            <Input
+              id="itemName"
+              placeholder="e.g., iPhone 13, Blue Backpack, Red Jacket"
+              value={formData.itemName}
+              onChange={(e) => setFormData({...formData, itemName: e.target.value})}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Detailed Description *</Label>
             <Textarea
-              id="itemDescription"
-              placeholder="Describe the item you found (color, brand, type, etc.)"
-              value={formData.itemDescription}
-              onChange={(e) => setFormData({...formData, itemDescription: e.target.value})}
+              id="description"
+              placeholder="Describe the item in detail (color, brand, distinctive features, condition, etc.)"
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
               required
               rows={4}
             />
@@ -82,15 +171,15 @@ export const FoundItemForm = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="dateSeen" className="flex items-center gap-2">
+              <Label htmlFor="dateFound" className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
                 Date Found *
               </Label>
               <Input
-                id="dateSeen"
+                id="dateFound"
                 type="date"
-                value={formData.dateSeen}
-                onChange={(e) => setFormData({...formData, dateSeen: e.target.value})}
+                value={formData.dateFound}
+                onChange={(e) => setFormData({...formData, dateFound: e.target.value})}
                 required
               />
             </div>
@@ -100,7 +189,7 @@ export const FoundItemForm = () => {
                 <MapPin className="h-4 w-4" />
                 Location Found *
               </Label>
-              <Select onValueChange={(value) => setFormData({...formData, placeSeen: value})}>
+              <Select onValueChange={(value) => setFormData({...formData, placeFound: value})}>
                 <SelectTrigger>
                   <SelectValue placeholder="Where did you find it?" />
                 </SelectTrigger>
@@ -115,19 +204,74 @@ export const FoundItemForm = () => {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="category">Category *</Label>
+              <Select onValueChange={(value) => setFormData({...formData, category: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="color">Color (Optional)</Label>
+              <Input
+                id="color"
+                placeholder="e.g., Blue, Red, Black"
+                value={formData.color}
+                onChange={(e) => setFormData({...formData, color: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="brand">Brand (Optional)</Label>
+              <Input
+                id="brand"
+                placeholder="e.g., Apple, Nike, Samsung"
+                value={formData.brand}
+                onChange={(e) => setFormData({...formData, brand: e.target.value})}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="storageLocation">Current Storage Location</Label>
+              <Input
+                id="storageLocation"
+                placeholder="e.g., Security Office, Lost & Found"
+                value={formData.storageLocation}
+                onChange={(e) => setFormData({...formData, storageLocation: e.target.value})}
+              />
+            </div>
+          </div>
+
           <div className="space-y-2">
-            <Label htmlFor="remarks">Additional Remarks (Optional)</Label>
-            <Textarea
-              id="remarks"
-              placeholder="Any additional details about where exactly you found it or its condition"
-              value={formData.remarks}
-              onChange={(e) => setFormData({...formData, remarks: e.target.value})}
-              rows={3}
+            <Label htmlFor="contactInfo">Your Contact Information (Optional)</Label>
+            <Input
+              id="contactInfo"
+              placeholder="Your phone number or email for the owner to contact you"
+              value={formData.contactInfo}
+              onChange={(e) => setFormData({...formData, contactInfo: e.target.value})}
             />
           </div>
 
-          <Button type="submit" variant="success" className="w-full" size="lg">
-            Report Found Item
+          <Button 
+            type="submit" 
+            variant="default" 
+            className="w-full bg-green-600 hover:bg-green-700" 
+            size="lg"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Reporting..." : "Report Found Item"}
           </Button>
         </form>
       </CardContent>

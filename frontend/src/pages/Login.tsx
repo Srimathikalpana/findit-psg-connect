@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -7,14 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { Header } from "@/components/Header"
 import { Mail, Lock, User, School } from "lucide-react"
-// ...existing imports...
 import axios from 'axios';
 
 // ...existing code...
 
 const apiLogin = async (email: string, password: string) => {
   try {
-    const response = await axios.post('http://localhost:5000/api/login', { username: email, password });
+    const response = await axios.post('http://localhost:8080/api/login', { email, password });
     return response.data;
   } catch (error: any) {
     return { success: false, message: error.response?.data?.message || "Login failed" };
@@ -23,7 +23,7 @@ const apiLogin = async (email: string, password: string) => {
 
 const apiRegister = async (name: string, email: string, studentId: string, password: string) => {
   try {
-    const response = await axios.post('http://localhost:5000/api/register', { name, email, studentId, password });
+    const response = await axios.post('http://localhost:8080/api/register', { name, email, studentId, password });
     return response.data;
   } catch (error: any) {
     return { success: false, message: error.response?.data?.message || "Registration failed" };
@@ -40,6 +40,7 @@ export const Login = () => {
     confirmPassword: "" 
   })
   const { toast } = useToast()
+  const navigate = useNavigate()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +62,11 @@ export const Login = () => {
     });
    
     if (result.success) {
+      // Store token in localStorage
+      localStorage.setItem('token', result.data.token);
       setLoginData({ email: "", password: "" }); // Clear login fields
+      // Redirect to dashboard
+      navigate('/dashboard');
     }
   };
 
@@ -98,14 +103,18 @@ export const Login = () => {
       variant: result.success ? undefined : "destructive"
     });
     if (result.success) {
-    setRegisterData({
-      name: "",
-      email: "",
-      studentId: "",
-      password: "",
-      confirmPassword: ""
-    });
-  }
+      // Store token in localStorage
+      localStorage.setItem('token', result.data.token);
+      setRegisterData({
+        name: "",
+        email: "",
+        studentId: "",
+        password: "",
+        confirmPassword: ""
+      });
+      // Redirect to dashboard
+      navigate('/dashboard');
+    }
   };
 
   return (

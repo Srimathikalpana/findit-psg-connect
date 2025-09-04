@@ -1,4 +1,5 @@
 import { useState } from "react"
+import axios from "axios"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -22,35 +23,94 @@ const locations = [
   "Other"
 ]
 
+const categories = [
+  "Electronics",
+  "Clothing",
+  "Accessories",
+  "Books",
+  "Stationery",
+  "Sports Equipment",
+  "Personal Items",
+  "Other"
+]
+
 export const LostItemForm = () => {
   const [formData, setFormData] = useState({
     itemName: "",
     description: "",
     dateLost: "",
     location: "",
+    category: "",
+    color: "",
+    brand: "",
     contactInfo: ""
   })
   const { toast } = useToast()
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async(e: React.FormEvent) => {
     e.preventDefault()
-    
-    // Simulate form submission
-    toast({
-      title: "Lost item reported successfully!",
-      description: "We'll notify you if someone finds your item.",
-    })
-    
+    setIsSubmitting(true)
+
+     try {
+      const token = localStorage.getItem('token')
+      console.log('Submitting with token:', token?.substring(0, 20) + '...');
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login to report a lost item",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await axios.post(
+        'http://localhost:8080/api/lost-items',
+        {
+          itemName: formData.itemName,
+          description: formData.description,
+          placeLost: formData.location,
+          dateLost: formData.dateLost,
+          category: formData.category,
+          color: formData.color,
+          brand: formData.brand,
+          contactInfo: formData.contactInfo
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          withCredentials: true       }
+      )  
+    if (response.data.success) {
+        toast({
+          title: "Lost item reported successfully!",
+          description: "We'll notify you if someone finds your item.",
+        })
     // Reset form
     setFormData({
       itemName: "",
       description: "",
       dateLost: "",
       location: "",
+      category: "",
+      color: "",
+      brand: "",
       contactInfo: ""
     })
   }
-
+  } catch (error: any) {
+    console.error('Submission error:', error.response?.data || error.message);
+      toast({
+      title: "Error reporting lost item",
+      description: error.response?.data?.message || "Something went wrong",
+      variant: "destructive"
+    })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader className="text-center">
@@ -126,6 +186,44 @@ export const LostItemForm = () => {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="category">Category *</Label>
+              <Select onValueChange={(value) => setFormData({...formData, category: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="color">Color (Optional)</Label>
+              <Input
+                id="color"
+                placeholder="e.g., Blue, Red, Black"
+                value={formData.color}
+                onChange={(e) => setFormData({...formData, color: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="brand">Brand (Optional)</Label>
+            <Input
+              id="brand"
+              placeholder="e.g., Apple, Nike, Samsung"
+              value={formData.brand}
+              onChange={(e) => setFormData({...formData, brand: e.target.value})}
+            />
           </div>
 
           <div className="space-y-2">

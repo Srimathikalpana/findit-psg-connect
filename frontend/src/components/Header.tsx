@@ -1,15 +1,30 @@
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Link, useLocation } from "react-router-dom"
-import { LogOut, User } from "lucide-react"
+import { Link, useLocation, useNavigate } from "react-router-dom"
+import { LogOut, User, LayoutDashboard } from "lucide-react"
 
-interface HeaderProps {
-  isAuthenticated?: boolean
-  onLogout?: () => void
-  userEmail?: string
-}
-
-export const Header = ({ isAuthenticated = false, onLogout, userEmail }: HeaderProps) => {
+export const Header = () => {
   const location = useLocation()
+  const navigate = useNavigate()
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [userEmail, setUserEmail] = useState("")
+
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      setIsAuthenticated(true)
+      // You could decode the JWT token to get user email, or fetch from API
+      // For now, we'll just show that user is logged in
+      setUserEmail("Logged In")
+    }
+  }, [])
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    setIsAuthenticated(false)
+    setUserEmail("")
+    navigate('/')
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -43,16 +58,28 @@ export const Header = ({ isAuthenticated = false, onLogout, userEmail }: HeaderP
           >
             About Us
           </Link>
+          {isAuthenticated && (
+            <Link 
+              to="/dashboard" 
+              className={`text-sm font-medium transition-colors hover:text-primary ${
+                location.pathname === '/dashboard' ? 'text-primary' : 'text-muted-foreground'
+              }`}
+            >
+              Dashboard
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center space-x-4">
           {isAuthenticated ? (
             <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-2">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{userEmail}</span>
-              </div>
-              <Button variant="outline" size="sm" onClick={onLogout}>
+              <Link to="/dashboard">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <LayoutDashboard className="h-4 w-4" />
+                  Dashboard
+                </Button>
+              </Link>
+              <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" />
                 Logout
               </Button>
