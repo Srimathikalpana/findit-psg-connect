@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { Header } from "@/components/Header"
+import { ClaimDialog } from "@/components/ClaimDialog"
 import { 
   Search, 
   Eye, 
@@ -37,6 +38,12 @@ interface LostItem {
     phone?: string
     email?: string
   }
+  potentialMatches?: Array<{
+    foundItem: FoundItem;
+    similarity: number;
+    locationMatch: boolean;
+    timeValid: boolean;
+  }>;
 }
 
 interface FoundItem {
@@ -51,6 +58,8 @@ interface FoundItem {
   status: string
   createdAt: string
   storageLocation?: string
+  verificationQuestion: string
+  correctAnswer: string
   contactInfo?: {
     phone?: string
     email?: string
@@ -117,7 +126,31 @@ const Dashboard = () => {
       })
 
       if (response.data.success) {
-        setLostItems(response.data.data.lostItems || [])
+        // Get potential matches for each lost item
+        const lostItemsWithMatches = await Promise.all(
+          response.data.data.lostItems.map(async (item: LostItem) => {
+            try {
+              const matchesResponse = await axios.get(
+                `http://localhost:8080/api/lost-items/${item._id}/matches`,
+                {
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                  }
+                }
+              );
+              return {
+                ...item,
+                potentialMatches: matchesResponse.data.data || []
+              };
+            } catch (error) {
+              console.error(`Error fetching matches for item ${item._id}:`, error);
+              return item;
+            }
+          })
+        );
+
+        setLostItems(lostItemsWithMatches)
         setFoundItems(response.data.data.foundItems || [])
       }
     } catch (error: any) {
@@ -158,6 +191,36 @@ const Dashboard = () => {
         description: error.response?.data?.message || "Failed to delete item.",
         variant: "destructive"
       })
+    }
+  }
+
+  const handleClaim = async (lostItemId: string, foundItemId: string, verificationQuestion: string) => {
+    try {
+      const answer = window.prompt(verificationQuestion)
+      if (!answer) return
+
+      const token = localStorage.getItem('token')
+      const response = await axios.post('http://localhost:8080/api/claims/verify-and-claim', {
+        lostItemId,
+        foundItemId,
+        answer
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.data.success) {
+        toast({ title: 'Claim successful', description: 'Verification passed. Items marked as claimed.' })
+        // Update local status immediately
+        setLostItems(prev => prev.map(li => li._id === lostItemId ? { ...li, status: 'claimed' } : li))
+        setFoundItems(prev => prev.map(fi => fi._id === foundItemId ? { ...fi, status: 'claimed' } : fi))
+      } else {
+        toast({ title: 'Verification failed', description: response.data.message || 'Incorrect answer.', variant: 'destructive' })
+      }
+    } catch (error: any) {
+      toast({ title: 'Claim failed', description: error.response?.data?.message || 'Please try again.', variant: 'destructive' })
     }
   }
 
@@ -304,7 +367,7 @@ const Dashboard = () => {
               </Card>
             ) : (
               <div className="grid gap-4">
-                {lostItems.map((item) => (
+                {lostItems.map(item => (
                   <Card key={item._id}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
@@ -354,6 +417,27 @@ const Dashboard = () => {
                         </div>
                       )}
                     </CardContent>
+                    {item.potentialMatches && item.potentialMatches.length > 0 && (
+                      <div className="mt-4 border-t pt-4">
+                        <h4 className="font-medium">Potential Matches</h4>
+                        {[...item.potentialMatches].sort((a, b) => b.similarity - a.similarity).map(match => (
+                          <div key={match.foundItem._id} className="mt-2 p-2 bg-muted rounded-lg">
+                            <p className="text-sm">Match Score: {(match.similarity * 100).toFixed(0)}%</p>
+                            <p className="text-sm">Found at: {match.foundItem.placeFound}</p>
+                            <Button 
+                              onClick={() => handleClaim(
+                                item._id, 
+                                match.foundItem._id, 
+                                match.foundItem.verificationQuestion
+                              )}
+                              className="mt-2"
+                            >
+                              Claim This Item
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </Card>
                 ))}
               </div>
@@ -427,6 +511,28 @@ const Dashboard = () => {
                         <div className="mt-4 p-3 bg-muted rounded-lg">
                           <p className="text-sm font-medium mb-1">Storage Location:</p>
                           <p className="text-sm">{item.storageLocation}</p>
+                        </div>
+                      )}
+                      {item.status === 'active' && (
+                        <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                          <div className="flex items-center gap-2 text-blue-700">
+                            <Clock className="h-4 w-4" />
+                            <p className="text-sm font-medium">Waiting for Claims</p>
+                          </div>
+                          <p className="text-sm text-blue-600 mt-1">
+                            This item requires verification for claiming
+                          </p>
+                        </div>
+                      )}
+                      {item.status === 'claimed' && (
+                        <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-100">
+                          <div className="flex items-center gap-2 text-green-700">
+                            <CheckCircle className="h-4 w-4" />
+                            <p className="text-sm font-medium">Item Claimed</p>
+                          </div>
+                          <p className="text-sm text-green-600 mt-1">
+                            This item has been successfully claimed
+                          </p>
                         </div>
                       )}
                       {item.contactInfo && (

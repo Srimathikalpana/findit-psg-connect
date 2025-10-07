@@ -16,6 +16,21 @@ const itemSchema = new mongoose.Schema({
   contactInfo: {
     phone: String,
     email: String
+  },
+  // Add verification fields
+  verificationQuestion: { 
+    type: String,
+    required: function() { return this.type === 'found'; } // Only required for found items
+  },
+  correctAnswer: {
+    type: String,
+    required: function() { return this.type === 'found'; } // Only required for found items
+  },
+  // Add type field to distinguish between lost and found items
+  type: {
+    type: String,
+    enum: ['lost', 'found'],
+    required: true
   }
 }, { timestamps: true });
 

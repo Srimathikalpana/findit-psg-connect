@@ -44,6 +44,8 @@ export const FoundItemForm = () => {
     color: "",
     brand: "",
     storageLocation: "",
+    verificationQuestion: "",
+    correctAnswer: "",
     contactInfo: ""
   })
   const { toast } = useToast()
@@ -77,7 +79,9 @@ export const FoundItemForm = () => {
           color: formData.color,
           brand: formData.brand,
           storageLocation: formData.storageLocation,
-          contactInfo: formData.contactInfo
+          contactInfo: formData.contactInfo,
+          verificationQuestion: formData.verificationQuestion,
+          correctAnswer: formData.correctAnswer
         },
         {
           headers: {
@@ -112,6 +116,8 @@ export const FoundItemForm = () => {
           color: "",
           brand: "",
           storageLocation: "",
+          verificationQuestion: "",
+          correctAnswer: "",
           contactInfo: ""
         })
       }
@@ -263,7 +269,40 @@ export const FoundItemForm = () => {
               onChange={(e) => setFormData({...formData, contactInfo: e.target.value})}
             />
           </div>
+          <div className="space-y-6 border-t pt-6">
+            <h3 className="font-medium text-lg">Verification Details</h3>
+            <div className="space-y-2">
+              <Label htmlFor="verificationQuestion">
+                Verification Question *
+                <span className="text-sm text-muted-foreground block">
+                  This will be asked to anyone claiming to have found your item
+                </span>
+              </Label>
+              <Input
+                id="verificationQuestion"
+                placeholder="e.g., What's unique about this item? Any identifying marks?"
+                value={formData.verificationQuestion}
+                onChange={(e) => setFormData({...formData, verificationQuestion: e.target.value})}
+                required
+              />
+            </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="correctAnswer">
+                Correct Answer *
+                <span className="text-sm text-muted-foreground block">
+                  The expected answer from the true owner
+                </span>
+              </Label>
+              <Input
+                id="correctAnswer"
+                placeholder="e.g., Initials 'JD', Pattern is L shape"
+                value={formData.correctAnswer}
+                onChange={(e) => setFormData({...formData, correctAnswer: e.target.value})}
+                required
+              />
+            </div>
+          </div>
           <Button 
             type="submit" 
             variant="default" 

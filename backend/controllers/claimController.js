@@ -2,6 +2,115 @@ const Claim = require('../models/claim');
 const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
+const stringSimilarity = require('string-similarity');
+
+// Verify answer and immediately confirm claim by marking both items as claimed
+exports.verifyAndClaim = async (req, res) => {
+  try {
+    const { lostItemId, foundItemId, answer } = req.body;
+
+    if (!lostItemId || !foundItemId || typeof answer !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'lostItemId, foundItemId and answer are required'
+      });
+    }
+
+    const lostItem = await LostItem.findById(lostItemId);
+    const foundItem = await FoundItem.findById(foundItemId);
+
+    if (!lostItem || !foundItem) {
+      return res.status(404).json({ success: false, message: 'Lost or Found item not found' });
+    }
+
+    if (lostItem.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only claim items linked to your lost report' });
+    }
+
+    if (lostItem.status !== 'active' || foundItem.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Items are not available for claiming' });
+    }
+
+    const similarity = stringSimilarity.compareTwoStrings(
+      (answer || '').toLowerCase().trim(),
+      (foundItem.correctAnswer || '').toLowerCase().trim()
+    );
+
+    if (similarity < 0.9) {
+      return res.status(200).json({ success: false, message: 'Verification failed. Incorrect answer.' });
+    }
+
+    // Create a completed claim and mark items claimed immediately
+    const claim = new Claim({
+      lostItem: lostItem._id,
+      foundItem: foundItem._id,
+      claimant: req.user._id,
+      finder: foundItem.user,
+      verificationQuestion: foundItem.verificationQuestion,
+      claimantAnswer: answer,
+      verificationStatus: 'approved',
+      status: 'completed',
+      approvedDate: new Date()
+    });
+
+    await claim.save();
+
+    lostItem.status = 'claimed';
+    foundItem.status = 'claimed';
+    await lostItem.save();
+    await foundItem.save();
+
+    return res.json({
+      success: true,
+      message: 'Claim verified and completed. Items marked as claimed.',
+      data: { claimId: claim._id, lostItem, foundItem }
+    });
+  } catch (error) {
+    console.error('Verify and claim error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// Verify answer for found item
+exports.verifyAnswer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { answer } = req.body;
+
+    const foundItem = await FoundItem.findById(id);
+    if (!foundItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Found item not found'
+      });
+    }
+
+    // Compare answer with correct answer using string similarity
+    const similarity = stringSimilarity.compareTwoStrings(
+      answer.toLowerCase().trim(),
+      foundItem.correctAnswer.toLowerCase().trim()
+    );
+
+    // If similarity is greater than 0.8 (80% match), consider it correct
+    if (similarity > 0.8) {
+      return res.json({
+        success: true,
+        message: 'Answer verified successfully'
+      });
+    }
+
+    return res.json({
+      success: false,
+      message: 'Incorrect answer'
+    });
+  } catch (error) {
+    console.error('Error verifying answer:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error verifying answer'
+    });
+  }
+};
 
 // Create Claim
 exports.createClaim = async (req, res) => {

@@ -1,10 +1,70 @@
+const { findMatches, calculateItemSimilarity, isLocationNearby, isTimeValid } = require('../utils/itemMatcher');
 const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
 const stringSimilarity = require('string-similarity');
 
+// Get matches for a lost item
+exports.getMatchesForLostItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const lostItem = await LostItem.findById(id);
+    if (!lostItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lost item not found'
+      });
+    }
+
+    // Find potential matches from found items
+    const foundItems = await FoundItem.find({ 
+      status: 'active',
+      user: { $ne: req.user._id } // Exclude user's own found items
+    });
+
+    const matches = [];
+    foundItems.forEach(foundItem => {
+      const nameSimilarity = stringSimilarity.compareTwoStrings(
+        lostItem.itemName.toLowerCase(),
+        foundItem.itemName.toLowerCase()
+      );
+      
+      const descriptionSimilarity = stringSimilarity.compareTwoStrings(
+        lostItem.description.toLowerCase(),
+        foundItem.description.toLowerCase()
+      );
+
+      const locationSimilarity = stringSimilarity.compareTwoStrings(
+        lostItem.placeLost.toLowerCase(),
+        foundItem.placeFound.toLowerCase()
+      );
+
+      const overallScore = (nameSimilarity * 0.5) + (descriptionSimilarity * 0.3) + (locationSimilarity * 0.2);
+
+      if (overallScore > 0.6) {
+        matches.push({
+          ...foundItem.toObject(),
+          matchScore: overallScore
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      matches: matches.sort((a, b) => b.matchScore - a.matchScore)
+    });
+
+  } catch (error) {
+    console.error('Error getting matches:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error finding matches'
+    });
+  }
+};
+
 // NLP Matching Service
-const findMatches = async (foundItem) => {
+const findMatchesService = async (foundItem) => {
   try {
     const lostItems = await LostItem.find({ status: 'active' }).populate('user', 'name email studentId');
     const matches = [];
@@ -84,15 +144,35 @@ exports.createLostItem = async (req, res) => {
       reward: reward || 0,
       isUrgent: isUrgent || false,
       contactInfo,
-      user: req.user._id
+      user: req.user._id,
+      type: 'lost'
     });
+
+    // Find potential matches in found items
+    const foundItems = await FoundItem.find({ 
+      status: 'active'  // Only look for unclaimed found items
+    });
+    
+    const potentialMatches = await findMatches(lostItem, foundItems);
+    
+    // Save matches reference in lost item
+    lostItem.potentialMatches = potentialMatches.map(match => match.itemId);
+    await lostItem.save();
+
+    // Add reference to matched found items
+    for (const match of potentialMatches) {
+      await FoundItem.findByIdAndUpdate(match.itemId, {
+        $addToSet: { matchedWith: lostItem._id }
+      });
+    }
 
     await lostItem.save();
 
     res.status(201).json({ 
       success: true,
       message: 'Lost item reported successfully', 
-      data: lostItem 
+      data: lostItem,
+      matches: potentialMatches
     });
   } catch (error) {
     console.error('Create lost item error:', error);
@@ -118,13 +198,15 @@ exports.createFoundItem = async (req, res) => {
       brand, 
       handedOverTo, 
       storageLocation,
-      contactInfo 
+      contactInfo,
+      verificationQuestion,
+      correctAnswer
     } = req.body;
 
-    if (!itemName || !description || !placeFound || !dateFound || !category) {
+    if (!itemName || !description || !placeFound || !dateFound || !category || !verificationQuestion || !correctAnswer) {
       return res.status(400).json({ 
         success: false,
-        message: 'Required fields: itemName, description, placeFound, dateFound, category' 
+        message: 'Required fields: itemName, description, placeFound, dateFound, category, verificationQuestion, correctAnswer' 
       });
     }
 
@@ -140,13 +222,15 @@ exports.createFoundItem = async (req, res) => {
       handedOverTo,
       storageLocation,
       contactInfo,
+      verificationQuestion,
+      correctAnswer,
       user: req.user._id
     });
 
     await foundItem.save();
 
     // Find potential matches
-    const matches = await findMatches(foundItem);
+    const matches = await findMatchesService(foundItem);
 
     res.status(201).json({ 
       success: true,
@@ -410,7 +494,13 @@ exports.deleteItem = async (req, res) => {
       });
     }
 
-    await item.remove();
+    // Prefer document.deleteOne when available; otherwise choose model by inspecting the item
+    if (typeof item.deleteOne === 'function') {
+      await item.deleteOne();
+    } else {
+      const ModelToUse = item.placeLost !== undefined ? LostItem : FoundItem;
+      await ModelToUse.deleteOne({ _id: id });
+    }
 
     res.json({
       success: true,
@@ -480,6 +570,48 @@ exports.searchItems = async (req, res) => {
       success: false,
       message: 'Server error', 
       error: error.message 
+    });
+  }
+};
+
+// Add endpoint to get matches for a lost item
+exports.getLostItemMatches = async (req, res) => {
+  try {
+    const lostItem = await LostItem.findById(req.params.id)
+      .populate('potentialMatches');
+    
+    if (!lostItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lost item not found'
+      });
+    }
+
+    // Get full match details
+    const matches = await Promise.all(
+      lostItem.potentialMatches.map(async (matchId) => {
+        const foundItem = await FoundItem.findById(matchId)
+          .populate('user', 'name email');
+        const similarity = await calculateItemSimilarity(lostItem, foundItem);
+        return {
+          foundItem,
+          similarity,
+          locationMatch: isLocationNearby(lostItem.placeLost, foundItem.placeFound),
+          timeValid: isTimeValid(lostItem.dateLost, foundItem.dateFound)
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: matches
+    });
+  } catch (error) {
+    console.error('Get matches error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting matches',
+      error: error.message
     });
   }
 };

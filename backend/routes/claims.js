@@ -5,6 +5,8 @@ const auth = require('../middleware/auth');
 
 // Protected routes
 router.post('/claims', auth, claimController.createClaim);
+router.post('/claims/verify/:id', auth, claimController.verifyAnswer);
+router.post('/claims/verify-and-claim', auth, claimController.verifyAndClaim);
 router.get('/claims', auth, claimController.getUserClaims);
 router.get('/claims/:id', auth, claimController.getClaimById);
 router.put('/claims/:id/status', auth, claimController.updateClaimStatus);
