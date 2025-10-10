@@ -7,6 +7,14 @@ const foundItemSchema = new mongoose.Schema({
   dateFound: { type: Date, required: true },
   handedOverTo: { type: String },
   storageLocation: { type: String },
+  // Cross-references to matched lost items with scores
+  matchRefs: [
+    {
+      lostItem: { type: mongoose.Schema.Types.ObjectId, ref: 'LostItem', required: true },
+      similarity: { type: Number, required: true, min: 0, max: 1 },
+      matchedAt: { type: Date, default: Date.now }
+    }
+  ],
   // Set type as 'found' by default
   type: {
     type: String,

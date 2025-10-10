@@ -11,6 +11,14 @@ const lostItemSchema = new mongoose.Schema({
     default: 'lost',
     enum: ['lost']
   },
+  // Cross-references to matched found items with scores
+  matchRefs: [
+    {
+      foundItem: { type: mongoose.Schema.Types.ObjectId, ref: 'FoundItem', required: true },
+      similarity: { type: Number, required: true, min: 0, max: 1 },
+      matchedAt: { type: Date, default: Date.now }
+    }
+  ],
   potentialMatches: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FoundItem'

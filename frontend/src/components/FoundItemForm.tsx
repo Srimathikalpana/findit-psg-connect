@@ -46,7 +46,7 @@ export const FoundItemForm = () => {
     storageLocation: "",
     verificationQuestion: "",
     correctAnswer: "",
-    contactInfo: ""
+    contactPhone: ""
   })
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -79,7 +79,7 @@ export const FoundItemForm = () => {
           color: formData.color,
           brand: formData.brand,
           storageLocation: formData.storageLocation,
-          contactInfo: formData.contactInfo,
+          contactInfo: { phone: formData.contactPhone },
           verificationQuestion: formData.verificationQuestion,
           correctAnswer: formData.correctAnswer
         },
@@ -118,7 +118,7 @@ export const FoundItemForm = () => {
           storageLocation: "",
           verificationQuestion: "",
           correctAnswer: "",
-          contactInfo: ""
+          contactPhone: ""
         })
       }
     } catch (error: any) {
@@ -228,7 +228,7 @@ export const FoundItemForm = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="color">Color (Optional)</Label>
+              <Label htmlFor="color">Color</Label>
               <Input
                 id="color"
                 placeholder="e.g., Blue, Red, Black"
@@ -240,7 +240,7 @@ export const FoundItemForm = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="brand">Brand (Optional)</Label>
+              <Label htmlFor="brand">Brand</Label>
               <Input
                 id="brand"
                 placeholder="e.g., Apple, Nike, Samsung"
@@ -261,12 +261,14 @@ export const FoundItemForm = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="contactInfo">Your Contact Information (Optional)</Label>
+            <Label htmlFor="contactPhone">Your Phone Number *</Label>
             <Input
-              id="contactInfo"
-              placeholder="Your phone number or email for the owner to contact you"
-              value={formData.contactInfo}
-              onChange={(e) => setFormData({...formData, contactInfo: e.target.value})}
+              id="contactPhone"
+              placeholder="e.g., 9834****** - for the owner to contact you"
+              value={formData.contactPhone}
+              required
+              pattern="\d{7,15}"
+              onChange={(e) => setFormData({...formData, contactPhone: e.target.value})}
             />
           </div>
           <div className="space-y-6 border-t pt-6">

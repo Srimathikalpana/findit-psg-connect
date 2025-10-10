@@ -2,6 +2,7 @@ const { findMatches, calculateItemSimilarity, isLocationNearby, isTimeValid } = 
 const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
+const Claim = require('../models/claim');
 const stringSimilarity = require('string-similarity');
 
 // Get matches for a lost item
@@ -232,6 +233,21 @@ exports.createFoundItem = async (req, res) => {
     // Find potential matches
     const matches = await findMatchesService(foundItem);
 
+    // For each matched lost item, add this found item to its potentialMatches
+    if (Array.isArray(matches) && matches.length > 0) {
+      const bulk = LostItem.collection.initializeUnorderedBulkOp();
+      matches.forEach(m => {
+        if (m.lostItem && m.lostItem._id) {
+          bulk.find({ _id: m.lostItem._id, status: 'active' }).updateOne({
+            $addToSet: { potentialMatches: foundItem._id }
+          });
+        }
+      });
+      if (bulk.length > 0) {
+        await bulk.execute();
+      }
+    }
+
     res.status(201).json({ 
       success: true,
       message: 'Found item reported successfully', 
@@ -384,19 +400,70 @@ exports.getUserItems = async (req, res) => {
 
     if (!type || type === 'lost') {
       lostItems = await LostItem.find({ user: userId })
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .populate({ path: 'potentialMatches', match: { status: 'active' } })
+        .populate({ path: 'matchRefs.foundItem', select: 'itemName description placeFound dateFound category status user contactInfo verificationQuestion', strictPopulate: false, populate: { path: 'user', select: 'name email studentId' } });
     }
 
     if (!type || type === 'found') {
       foundItems = await FoundItem.find({ user: userId })
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .populate({ path: 'matchRefs.lostItem', select: 'itemName description placeLost dateLost category status user contactInfo', strictPopulate: false, populate: { path: 'user', select: 'name email studentId' } });
     }
+
+    // Fetch completed claims involving this user to attach counterpart details
+    const lostItemIds = lostItems.map(i => i._id);
+    const foundItemIds = foundItems.map(i => i._id);
+    const claims = await Claim.find({
+      status: 'completed',
+      $or: [
+        { lostItem: { $in: lostItemIds } },
+        { foundItem: { $in: foundItemIds } }
+      ]
+    })
+      .populate({ path: 'lostItem', select: 'contactInfo user', populate: { path: 'user', select: 'name email studentId' } })
+      .populate({ path: 'foundItem', select: 'contactInfo user', populate: { path: 'user', select: 'name email studentId' } });
+
+    const byLostId = new Map();
+    const byFoundId = new Map();
+    for (const c of claims) {
+      if (c.lostItem) byLostId.set(c.lostItem._id.toString(), c);
+      if (c.foundItem) byFoundId.set(c.foundItem._id.toString(), c);
+    }
+
+    const serializeLost = lostItems.map(li => {
+      const claim = byLostId.get(li._id.toString());
+      let claimedCounterpart = undefined;
+      if (li.status === 'claimed' && claim && claim.foundItem && claim.foundItem.user) {
+        claimedCounterpart = {
+          name: claim.foundItem.user.name,
+          studentId: claim.foundItem.user.studentId,
+          email: claim.foundItem.user.email,
+          phone: claim.foundItem.contactInfo?.phone
+        };
+      }
+      return { ...li.toObject(), claimedCounterpart };
+    });
+
+    const serializeFound = foundItems.map(fi => {
+      const claim = byFoundId.get(fi._id.toString());
+      let claimedCounterpart = undefined;
+      if (fi.status === 'claimed' && claim && claim.lostItem && claim.lostItem.user) {
+        claimedCounterpart = {
+          name: claim.lostItem.user.name,
+          studentId: claim.lostItem.user.studentId,
+          email: claim.lostItem.user.email,
+          phone: claim.lostItem.contactInfo?.phone
+        };
+      }
+      return { ...fi.toObject(), claimedCounterpart };
+    });
 
     res.json({
       success: true,
       data: {
-        lostItems,
-        foundItems
+        lostItems: serializeLost,
+        foundItems: serializeFound
       }
     });
   } catch (error) {
@@ -612,6 +679,60 @@ exports.getLostItemMatches = async (req, res) => {
       success: false,
       message: 'Error getting matches',
       error: error.message
+    });
+  }
+};
+
+// Add endpoint to get matches for a found item
+exports.getFoundItemMatches = async (req, res) => {
+  try {
+    const foundItem = await FoundItem.findById(req.params.id);
+    if (!foundItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Found item not found'
+      });
+    }
+
+    // Find potential matches from lost items
+    const lostItems = await LostItem.find({ status: 'active', user: { $ne: req.user._id } });
+
+    const matches = [];
+    lostItems.forEach(lostItem => {
+      const nameSimilarity = stringSimilarity.compareTwoStrings(
+        foundItem.itemName.toLowerCase(),
+        lostItem.itemName.toLowerCase()
+      );
+
+      const descriptionSimilarity = stringSimilarity.compareTwoStrings(
+        foundItem.description.toLowerCase(),
+        lostItem.description.toLowerCase()
+      );
+
+      const locationSimilarity = stringSimilarity.compareTwoStrings(
+        foundItem.placeFound.toLowerCase(),
+        lostItem.placeLost.toLowerCase()
+      );
+
+      const overallScore = (nameSimilarity * 0.5) + (descriptionSimilarity * 0.3) + (locationSimilarity * 0.2);
+
+      if (overallScore > 0.6) {
+        matches.push({
+          lostItem: lostItem.toObject(),
+          matchScore: overallScore
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      matches: matches.sort((a, b) => b.matchScore - a.matchScore)
+    });
+  } catch (error) {
+    console.error('Error getting found item matches:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error finding matches'
     });
   }
 };

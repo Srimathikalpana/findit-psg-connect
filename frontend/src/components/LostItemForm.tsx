@@ -43,7 +43,7 @@ export const LostItemForm = () => {
     category: "",
     color: "",
     brand: "",
-    contactInfo: ""
+    contactPhone: ""
   })
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -74,7 +74,7 @@ export const LostItemForm = () => {
           category: formData.category,
           color: formData.color,
           brand: formData.brand,
-          contactInfo: formData.contactInfo
+          contactInfo: { phone: formData.contactPhone }
         },
         {
           headers: {
@@ -97,7 +97,7 @@ export const LostItemForm = () => {
       category: "",
       color: "",
       brand: "",
-      contactInfo: ""
+      contactPhone: ""
     })
   }
   } catch (error: any) {
@@ -227,12 +227,14 @@ export const LostItemForm = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="contactInfo">Contact Information (Optional)</Label>
+            <Label htmlFor="contactPhone">Phone Number *</Label>
             <Input
-              id="contactInfo"
-              placeholder="Your phone number or additional contact details"
-              value={formData.contactInfo}
-              onChange={(e) => setFormData({...formData, contactInfo: e.target.value})}
+              id="contactPhone"
+              placeholder="eg: 983*******"
+              required
+              pattern="\d{7,15}"
+              value={formData.contactPhone}
+              onChange={(e) => setFormData({...formData, contactPhone: e.target.value})}
             />
           </div>
 

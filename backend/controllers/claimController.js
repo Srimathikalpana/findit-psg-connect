@@ -310,8 +310,8 @@ exports.updateClaimStatus = async (req, res) => {
       });
     }
 
-    // Check if claim is still pending
-    if (claim.status !== 'pending') {
+    // Allow approving a completed claim only if items already marked claimed (idempotency)
+    if (claim.status !== 'pending' && !(claim.status === 'completed' && status === 'approved')) {
       return res.status(400).json({
         success: false,
         message: 'Claim status cannot be updated'

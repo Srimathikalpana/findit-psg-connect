@@ -14,7 +14,16 @@ const itemSchema = new mongoose.Schema({
   color: { type: String },
   brand: { type: String },
   contactInfo: {
-    phone: String,
+    phone: {
+      type: String,
+      required: true,
+      validate: {
+        validator: function(v) {
+          return /^\d{7,15}$/.test((v || '').toString());
+        },
+        message: 'phone must be a numeric string (7-15 digits)'
+      }
+    },
     email: String
   },
   // Add verification fields

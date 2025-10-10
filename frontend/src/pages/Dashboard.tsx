@@ -38,6 +38,12 @@ interface LostItem {
     phone?: string
     email?: string
   }
+  claimedCounterpart?: {
+    name: string
+    studentId: string
+    email: string
+    phone?: string
+  }
   potentialMatches?: Array<{
     foundItem: FoundItem;
     similarity: number;
@@ -63,6 +69,12 @@ interface FoundItem {
   contactInfo?: {
     phone?: string
     email?: string
+  }
+  claimedCounterpart?: {
+    name: string
+    studentId: string
+    email: string
+    phone?: string
   }
 }
 
@@ -377,14 +389,16 @@ const Dashboard = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           {getStatusBadge(item.status)}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteItem(item._id, 'lost')}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {item.status === 'active' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteItem(item._id, 'lost')}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
@@ -409,31 +423,36 @@ const Dashboard = () => {
                           </div>
                         )}
                       </div>
-                      {item.contactInfo && (
+                      {item.status === 'claimed' && item.claimedCounterpart && (
                         <div className="mt-4 p-3 bg-muted rounded-lg">
                           <p className="text-sm font-medium mb-1">Contact Information:</p>
-                          {item.contactInfo.phone && <p className="text-sm">Phone: {item.contactInfo.phone}</p>}
-                          {item.contactInfo.email && <p className="text-sm">Email: {item.contactInfo.email}</p>}
+                          <p className="text-sm">Name: {item.claimedCounterpart.name} ({item.claimedCounterpart.studentId})</p>
+                          <p className="text-sm">Mailid: {item.claimedCounterpart.email}</p>
+                          {item.claimedCounterpart.phone && <p className="text-sm">Phone: {item.claimedCounterpart.phone}</p>}
                         </div>
                       )}
                     </CardContent>
-                    {item.potentialMatches && item.potentialMatches.length > 0 && (
+                    {item.status === 'active' && item.potentialMatches && item.potentialMatches.length > 0 && (
                       <div className="mt-4 border-t pt-4">
                         <h4 className="font-medium">Potential Matches</h4>
                         {[...item.potentialMatches].sort((a, b) => b.similarity - a.similarity).map(match => (
                           <div key={match.foundItem._id} className="mt-2 p-2 bg-muted rounded-lg">
                             <p className="text-sm">Match Score: {(match.similarity * 100).toFixed(0)}%</p>
                             <p className="text-sm">Found at: {match.foundItem.placeFound}</p>
-                            <Button 
-                              onClick={() => handleClaim(
-                                item._id, 
-                                match.foundItem._id, 
-                                match.foundItem.verificationQuestion
+                              {item.status === 'active' && match.foundItem.status === 'active' ? (
+                                <Button 
+                                  onClick={() => handleClaim(
+                                    item._id, 
+                                    match.foundItem._id, 
+                                    match.foundItem.verificationQuestion
+                                  )}
+                                  className="mt-2"
+                                >
+                                  Claim This Item
+                                </Button>
+                              ) : (
+                                <p className="text-xs text-muted-foreground mt-2">Claim unavailable</p>
                               )}
-                              className="mt-2"
-                            >
-                              Claim This Item
-                            </Button>
                           </div>
                         ))}
                       </div>
@@ -475,14 +494,16 @@ const Dashboard = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           {getStatusBadge(item.status)}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteItem(item._id, 'found')}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {item.status === 'active' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteItem(item._id, 'found')}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
@@ -535,11 +556,12 @@ const Dashboard = () => {
                           </p>
                         </div>
                       )}
-                      {item.contactInfo && (
+                      {item.status === 'claimed' && item.claimedCounterpart && (
                         <div className="mt-4 p-3 bg-muted rounded-lg">
                           <p className="text-sm font-medium mb-1">Contact Information:</p>
-                          {item.contactInfo.phone && <p className="text-sm">Phone: {item.contactInfo.phone}</p>}
-                          {item.contactInfo.email && <p className="text-sm">Email: {item.contactInfo.email}</p>}
+                          <p className="text-sm">Name: {item.claimedCounterpart.name} ({item.claimedCounterpart.studentId})</p>
+                          <p className="text-sm">Mailid: {item.claimedCounterpart.email}</p>
+                          {item.claimedCounterpart.phone && <p className="text-sm">Phone: {item.claimedCounterpart.phone}</p>}
                         </div>
                       )}
                     </CardContent>
