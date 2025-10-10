@@ -16,7 +16,7 @@ const itemSchema = new mongoose.Schema({
   contactInfo: {
     phone: {
       type: String,
-      required: true,
+      required: false,
       validate: {
         validator: function(v) {
           return /^\d{7,15}$/.test((v || '').toString());

@@ -3,10 +3,15 @@ const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
 const stringSimilarity = require('string-similarity');
+const { notifyMatchedUsers } = require('../utils/emailService');
 
 // Verify answer and immediately confirm claim by marking both items as claimed
 exports.verifyAndClaim = async (req, res) => {
   try {
+    // Ensure authenticated user present
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const { lostItemId, foundItemId, answer } = req.body;
 
     if (!lostItemId || !foundItemId || typeof answer !== 'string') {
@@ -59,6 +64,31 @@ exports.verifyAndClaim = async (req, res) => {
     foundItem.status = 'claimed';
     await lostItem.save();
     await foundItem.save();
+
+      // Send notification emails (best-effort)
+    try {
+      // populate claimant and finder so we have name/email
+      await claim.populate('claimant', 'name email');
+      await claim.populate('finder', 'name email');
+
+      const lostUser = claim.claimant;
+      const foundUser = claim.finder;
+      const itemName = lostItem.itemName || foundItem.itemName || 'item';
+
+      const emailResult = await notifyMatchedUsers(lostUser, foundUser, itemName);
+
+      if ((emailResult.sentToLost || emailResult.sentToFound)) {
+        if (!Array.isArray(claim.notificationsSent)) claim.notificationsSent = [];
+        claim.notificationsSent.push(new Date());
+        await claim.save();
+      }
+
+      if (emailResult.errors && emailResult.errors.length) {
+        console.error('notifyMatchedUsers errors:', emailResult.errors);
+      }
+    } catch (emailErr) {
+      console.error('Error sending notification emails:', emailErr);
+    }
 
     return res.json({
       success: true,
@@ -115,6 +145,9 @@ exports.verifyAnswer = async (req, res) => {
 // Create Claim
 exports.createClaim = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const { lostItemId, foundItemId, proofOfOwnership, meetingDetails } = req.body;
 
     if (!lostItemId || !foundItemId) {
@@ -199,6 +232,9 @@ exports.createClaim = async (req, res) => {
 // Get User's Claims
 exports.getUserClaims = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const userId = req.user._id;
     const { status, type } = req.query;
 
@@ -240,6 +276,9 @@ exports.getUserClaims = async (req, res) => {
 // Get Claim by ID
 exports.getClaimById = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const { id } = req.params;
     const userId = req.user._id;
 
@@ -293,6 +332,10 @@ exports.updateClaimStatus = async (req, res) => {
       });
     }
 
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
     const claim = await Claim.findById(id);
 
     if (!claim) {
@@ -324,7 +367,30 @@ exports.updateClaimStatus = async (req, res) => {
     }
 
     await claim.save();
+     // If approved, notify both users (finder approved claimant)
+    if (status === 'approved') {
+      try {
+        // populate users and load item names
+        await claim.populate('claimant', 'name email');
+        await claim.populate('finder', 'name email');
 
+        const lostItem = await LostItem.findById(claim.lostItem);
+        const foundItem = await FoundItem.findById(claim.foundItem);
+        const itemName = (lostItem && lostItem.itemName) || (foundItem && foundItem.itemName) || 'item';
+
+        const emailResult = await notifyMatchedUsers(claim.claimant, claim.finder, itemName);
+        if ((emailResult.sentToLost || emailResult.sentToFound)) {
+          if (!Array.isArray(claim.notificationsSent)) claim.notificationsSent = [];
+          claim.notificationsSent.push(new Date());
+          await claim.save();
+        }
+        if (emailResult.errors && emailResult.errors.length) {
+          console.error('notifyMatchedUsers errors on approval:', emailResult.errors);
+        }
+      } catch (emailErr) {
+        console.error('Error sending emails on claim approval:', emailErr);
+      }
+    }
     res.json({
       success: true,
       message: `Claim ${status} successfully`,
@@ -344,6 +410,9 @@ exports.updateClaimStatus = async (req, res) => {
 exports.completeClaim = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const userId = req.user._id;
 
     const claim = await Claim.findById(id);
@@ -451,6 +520,9 @@ exports.getAllClaims = async (req, res) => {
 exports.cancelClaim = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const userId = req.user._id;
 
     const claim = await Claim.findById(id);

@@ -4,6 +4,7 @@ const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
 const Claim = require('../models/claim');
 const stringSimilarity = require('string-similarity');
+const { notifyPotentialMatch } = require('../utils/emailService');
 
 // Get matches for a lost item
 exports.getMatchesForLostItem = async (req, res) => {
@@ -245,6 +246,31 @@ exports.createFoundItem = async (req, res) => {
       });
       if (bulk.length > 0) {
         await bulk.execute();
+      }
+
+      // Notify lost item owners about potential match (best-effort)
+      try {
+        for (const m of matches) {
+          if (m.lostItem && m.lostItem.user && m.lostItem.user.email) {
+            const lostUser = { name: m.lostItem.user.name, email: m.lostItem.user.email };
+            const foundSummary = {
+              itemName: foundItem.itemName,
+              placeFound: foundItem.placeFound,
+              dateFound: foundItem.dateFound,
+              reporterName: req.user?.name,
+              reporterEmail: req.user?.email,
+              id: foundItem._id,
+              lostItemId: m.lostItem._id
+            };
+            // fire-and-forget but await to log failures if any
+            const r = await notifyPotentialMatch(lostUser, foundSummary, m.lostItem.itemName);
+            if (r && r.sent === false) {
+              console.error('Failed to notify lost user about potential match:', r.error);
+            }
+          }
+        }
+      } catch (notifyErr) {
+        console.error('Error notifying lost item owners of potential matches:', notifyErr);
       }
     }
 
