@@ -336,7 +336,7 @@ const Dashboard = () => {
         {/* Quick Actions */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Button 
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/report')}
             variant="outline" 
             className="gap-2"
           >
@@ -369,12 +369,9 @@ const Dashboard = () => {
                   </div>
                   <h3 className="text-lg font-semibold mb-2">No lost items yet</h3>
                   <p className="text-muted-foreground mb-4">
-                    You haven't reported any lost items. Click the button below to report your first lost item.
+                    You haven't reported any lost items.
                   </p>
-                  <Button onClick={() => navigate('/')} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Report Lost Item
-                  </Button>
+                  
                 </CardContent>
               </Card>
             ) : (
@@ -474,12 +471,8 @@ const Dashboard = () => {
                   </div>
                   <h3 className="text-lg font-semibold mb-2">No found items yet</h3>
                   <p className="text-muted-foreground mb-4">
-                    You haven't reported any found items. Help someone find their lost item!
+                    You haven't reported any found items.
                   </p>
-                  <Button onClick={() => navigate('/')} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Report Found Item
-                  </Button>
                 </CardContent>
               </Card>
             ) : (

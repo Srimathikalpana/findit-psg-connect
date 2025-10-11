@@ -259,6 +259,65 @@ exports.getUserActivity = async (req, res) => {
   }
 };
 
+// Get Public Statistics (No auth required)
+exports.getPublicStats = async (req, res) => {
+  try {
+    // User statistics
+    const totalUsers = await User.countDocuments();
+    
+    // Claim statistics - only completed claims count as "recovered"
+    const completedClaims = await Claim.countDocuments({ status: 'completed' });
+
+    res.json({
+      success: true,
+      data: {
+        totalUsers,
+        completedClaims
+      }
+    });
+  } catch (error) {
+    console.error('Get public stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
+// Get Recent Completed Claims (No auth required)
+exports.getRecentClaims = async (req, res) => {
+  try {
+    const recentClaims = await Claim.find({ status: 'completed' })
+      .populate('lostItem', 'itemName placeLost')
+      .populate('foundItem', 'itemName placeFound')
+      .sort({ approvedDate: -1 })
+      .limit(3)
+      .exec();
+
+    const formattedClaims = recentClaims.map(claim => ({
+      id: claim._id,
+      lostItemName: claim.lostItem?.itemName || 'Unknown Item',
+      foundItemName: claim.foundItem?.itemName || 'Unknown Item',
+      placeLost: claim.lostItem?.placeLost || 'Unknown Location',
+      placeFound: claim.foundItem?.placeFound || 'Unknown Location',
+      approvedDate: claim.approvedDate
+    }));
+
+    res.json({
+      success: true,
+      data: formattedClaims
+    });
+  } catch (error) {
+    console.error('Get recent claims error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
 // Get Dashboard Statistics (Admin only)
 exports.getDashboardStats = async (req, res) => {
   try {
