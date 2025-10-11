@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Header } from "@/components/Header"
 import { Link } from "react-router-dom"
-import { Users, Target, Heart, Shield, Search, Eye, ArrowRight } from "lucide-react"
+import { Users, Target, Heart, Shield, Search, Eye, ArrowRight, ArrowLeft } from "lucide-react"
 
 export const About = () => {
   return (
@@ -111,7 +111,7 @@ export const About = () => {
                   <li>• Detailed item description</li>
                   <li>• Location where you lost it</li>
                   <li>• Date and time information</li>
-                  <li>• Contact information (optional)</li>
+                  <li>• Contact information</li>
                 </ul>
               </CardContent>
             </Card>
@@ -144,7 +144,7 @@ export const About = () => {
           </div>
         </section>
 
-        {/* Stats Section */}
+        {/* Stats Section 
         <section className="bg-primary/5 rounded-2xl p-8 text-center">
           <h2 className="text-3xl font-bold text-primary mb-8">Making a Difference</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -162,22 +162,15 @@ export const About = () => {
             </div>
           </div>
         </section>
-
-        {/* Call to Action */}
+      */}
+        {/* CAn add our name in future */}
         <section className="text-center space-y-6">
-          <h2 className="text-3xl font-bold text-primary">Ready to Get Started?</h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Join the PSG Tech community in making our campus a more connected and helpful place.
-          </p>
+          
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/login">
-              <Button variant="hero" size="lg" className="gap-2">
-                Join FIND IT
-                <ArrowRight className="h-5 w-5" />
-              </Button>
-            </Link>
+            
             <Link to="/">
               <Button variant="outline" size="lg">
+              <ArrowLeft className="h-5 w-5" />
                 Back to Home
               </Button>
             </Link>
@@ -191,7 +184,7 @@ export const About = () => {
             We're here to help make FIND IT better for everyone.
           </p>
           <p className="text-sm text-muted-foreground">
-            Contact us: <span className="font-medium">support@psgtech.ac.in</span>
+            Contact us: <a href="https://mail.google.com/mail/?view=cm&fs=1&to=finditpsg@gmail.com" className="font-medium text-primary hover:underline cursor-pointer" target="_blank" rel="noopener noreferrer">finditpsg@gmail.com</a>
           </p>
         </section>
       </main>

@@ -72,18 +72,10 @@ export const Header = () => {
 
         <div className="flex items-center space-x-4">
           {isAuthenticated ? (
-            <div className="flex items-center space-x-3">
-              <Link to="/dashboard">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <LayoutDashboard className="h-4 w-4" />
-                  Dashboard
-                </Button>
-              </Link>
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" />
-                Logout
-              </Button>
-            </div>
+            <Button variant="outline" size="sm" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" />
+              Logout
+            </Button>
           ) : (
             <Link to="/login">
               <Button size="sm">
