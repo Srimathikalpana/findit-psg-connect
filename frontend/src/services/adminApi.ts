@@ -107,7 +107,7 @@ export const updateUserRole = async (userId: string, role: string) => {
 
 // Delete user
 export const deleteUser = async (userId: string) => {
-  const response = await adminApi.delete(`/admin/users/${itemId}`);
+  const response = await adminApi.delete(`/admin/users/${userId}`);
   return response.data;
 };
 

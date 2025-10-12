@@ -9,7 +9,6 @@ import About from "./pages/About";
 import Dashboard from "./pages/Dashboard";
 import Report from "./pages/Report";
 import NotFound from "./pages/NotFound";
-import AdminLogin from "./pages/AdminLogin";
 import AdminLayout from "./components/admin/AdminLayout";
 import ProtectedAdminRoute from "./components/admin/ProtectedAdminRoute";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -33,7 +32,6 @@ const App = () => (
           <Route path="/report" element={<Report />} />
           
           {/* Admin Routes */}
-          <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={
             <ProtectedAdminRoute>
               <AdminLayout />
