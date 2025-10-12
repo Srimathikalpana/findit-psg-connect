@@ -10,14 +10,23 @@ import { Header } from "@/components/Header"
 import { Mail, Lock, User, School } from "lucide-react"
 import axios from 'axios';
 
-// ...existing code...
-
-const apiLogin = async (email: string, password: string) => {
+// Student login API call
+const apiStudentLogin = async (email: string, password: string) => {
   try {
     const response = await axios.post('http://localhost:8080/api/login', { email, password });
     return response.data;
   } catch (error: any) {
     return { success: false, message: error.response?.data?.message || "Login failed" };
+  }
+};
+
+// Admin login API call
+const apiAdminLogin = async (email: string, password: string) => {
+  try {
+    const response = await axios.post('http://localhost:8080/admin/login', { email, password });
+    return response.data;
+  } catch (error: any) {
+    return { success: false, message: error.response?.data?.message || "Admin login failed" };
   }
 };
 
@@ -42,10 +51,14 @@ export const Login = () => {
   const { toast } = useToast()
   const navigate = useNavigate()
 
+  // ✅ LOGIN HANDLER (Fixed - uses correct endpoints)
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!loginData.email.endsWith("@psgtech.ac.in")) {
+    const isAdmin = loginData.email === "finditpsg@gmail.com"; 
+
+    // Restrict non-admin users to PSG domain
+    if (!isAdmin && !loginData.email.endsWith("@psgtech.ac.in")) {
       toast({
         title: "Invalid email domain",
         description: "Please use your PSG Tech email (@psgtech.ac.in)",
@@ -54,22 +67,38 @@ export const Login = () => {
       return;
     }
 
-    const result = await apiLogin(loginData.email, loginData.password);
+    // Use different API endpoints based on user type
+    const result = isAdmin 
+      ? await apiAdminLogin(loginData.email, loginData.password)
+      : await apiStudentLogin(loginData.email, loginData.password);
+
     toast({
       title: result.success ? "Login successful!" : "Login failed",
       description: result.message,
       variant: result.success ? undefined : "destructive"
     });
-   
+
     if (result.success) {
-      // Store token in localStorage
-      localStorage.setItem('token', result.data.token);
-      setLoginData({ email: "", password: "" }); // Clear login fields
-      // Redirect to dashboard
-      navigate('/dashboard');
+      // Store token (admin uses 'token', student uses 'data.token')
+      const token = result.token || result.data?.token;
+      if (token) {
+        const storageKey = isAdmin ? 'adminToken' : 'token';
+        localStorage.setItem(storageKey, token);
+      }
+      
+      setLoginData({ email: "", password: "" });
+
+      // Redirect based on user type
+      // Redirect based on user type
+      if (isAdmin) {
+        navigate('/admin/dashboard');  // ✅ Correct route
+      } else {
+        navigate('/dashboard');
+      }
     }
   };
 
+  // ✅ REGISTER HANDLER (unchanged)
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -102,8 +131,8 @@ export const Login = () => {
       description: result.message,
       variant: result.success ? undefined : "destructive"
     });
+
     if (result.success) {
-      // Store token in localStorage
       localStorage.setItem('token', result.data.token);
       setRegisterData({
         name: "",
@@ -112,7 +141,6 @@ export const Login = () => {
         password: "",
         confirmPassword: ""
       });
-      // Redirect to dashboard
       navigate('/dashboard');
     }
   };
@@ -139,12 +167,13 @@ export const Login = () => {
               <TabsTrigger value="register">Sign Up</TabsTrigger>
             </TabsList>
             
+            {/* LOGIN TAB */}
             <TabsContent value="login">
               <Card>
                 <CardHeader>
                   <CardTitle>Welcome Back</CardTitle>
                   <CardDescription>
-                    Sign in to your PSG Tech account
+                    Sign in to your PSG Tech account or admin portal
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -152,12 +181,12 @@ export const Login = () => {
                     <div className="space-y-2">
                       <Label htmlFor="login-email" className="flex items-center gap-2">
                         <Mail className="h-4 w-4" />
-                        PSG Tech Email
+                        Email
                       </Label>
                       <Input
                         id="login-email"
                         type="email"
-                        placeholder="your.name@psgtech.ac.in"
+                        placeholder="your.name@psgtech.ac.in or finditpsg@gmail.com"
                         value={loginData.email}
                         onChange={(e) => setLoginData({...loginData, email: e.target.value})}
                         required
@@ -185,7 +214,8 @@ export const Login = () => {
                 </CardContent>
               </Card>
             </TabsContent>
-            
+
+            {/* REGISTER TAB */}
             <TabsContent value="register">
               <Card>
                 <CardHeader>

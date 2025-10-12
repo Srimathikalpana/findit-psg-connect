@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -8,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const itemsRoutes = require('./routes/items');
 const claimsRoutes = require('./routes/claims');
 const usersRoutes = require('./routes/users');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 
@@ -43,6 +45,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', itemsRoutes);
 app.use('/api', claimsRoutes);
 app.use('/api', usersRoutes);
+app.use('/admin', adminRoutes); 
 
 // Health check endpoint
 app.get('/health', (req, res) => {
