@@ -360,6 +360,57 @@ exports.getDashboardStats = async (req, res) => {
       createdAt: { $gte: sevenDaysAgo }
     });
 
+    // Weekly activity (last 7 days) - build arrays for charts
+    const weeklyActivity = [];
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for (let i = 6; i >= 0; i--) {
+      const dayStart = new Date();
+      dayStart.setHours(0,0,0,0);
+      dayStart.setDate(dayStart.getDate() - i);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setHours(23,59,59,999);
+
+      const lostCount = await LostItem.countDocuments({ createdAt: { $gte: dayStart, $lte: dayEnd } });
+      const foundCount = await FoundItem.countDocuments({ createdAt: { $gte: dayStart, $lte: dayEnd } });
+      const claimCount = await Claim.countDocuments({ createdAt: { $gte: dayStart, $lte: dayEnd } });
+
+      weeklyActivity.push({
+        date: dayStart.toISOString(),
+        name: dayNames[dayStart.getDay()] ,
+        lost: lostCount,
+        found: foundCount,
+        claims: claimCount
+      });
+    }
+
+    // Category breakdown for lost vs found
+    // Aggregate counts per category for lost and found items
+    const lostByCategoryAgg = await LostItem.aggregate([
+      { $match: { status: { $exists: true } } },
+      { $group: { _id: '$category', count: { $sum: 1 } } }
+    ]);
+    const foundByCategoryAgg = await FoundItem.aggregate([
+      { $match: { status: { $exists: true } } },
+      { $group: { _id: '$category', count: { $sum: 1 } } }
+    ]);
+
+    const categoryMap = new Map();
+    lostByCategoryAgg.forEach(c => {
+      if (!c._id) return;
+      categoryMap.set(c._id, { name: c._id, lost: c.count, found: 0 });
+    });
+    foundByCategoryAgg.forEach(c => {
+      if (!c._id) return;
+      const existing = categoryMap.get(c._id);
+      if (existing) {
+        existing.found = c.count;
+      } else {
+        categoryMap.set(c._id, { name: c._id, lost: 0, found: c.count });
+      }
+    });
+
+    const categoryBreakdown = Array.from(categoryMap.values()).sort((a,b) => (b.lost + b.found) - (a.lost + a.found)).slice(0,10);
+
     res.json({
       success: true,
       data: {
@@ -388,6 +439,9 @@ exports.getDashboardStats = async (req, res) => {
           claims: recentClaims,
           registrations: recentRegistrations
         }
+        ,
+        weeklyActivity,
+        categoryBreakdown
       }
     });
   } catch (error) {

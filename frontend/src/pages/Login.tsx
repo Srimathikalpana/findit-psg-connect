@@ -173,7 +173,7 @@ export const Login = () => {
                 <CardHeader>
                   <CardTitle>Welcome Back</CardTitle>
                   <CardDescription>
-                    Sign in to your PSG Tech account or admin portal
+                    Sign in to your PSG Tech account
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -186,7 +186,7 @@ export const Login = () => {
                       <Input
                         id="login-email"
                         type="email"
-                        placeholder="your.name@psgtech.ac.in or finditpsg@gmail.com"
+                        placeholder="roll@psgtech.ac.in"
                         value={loginData.email}
                         onChange={(e) => setLoginData({...loginData, email: e.target.value})}
                         required
@@ -249,7 +249,7 @@ export const Login = () => {
                       <Input
                         id="register-email"
                         type="email"
-                        placeholder="your.name@psgtech.ac.in"
+                        placeholder="rollno@psgtech.ac.in"
                         value={registerData.email}
                         onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
                         required

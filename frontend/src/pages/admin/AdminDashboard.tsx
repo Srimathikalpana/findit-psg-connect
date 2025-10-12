@@ -39,6 +39,18 @@ interface DashboardStats {
     claims: number;
     registrations: number;
   };
+  weeklyActivity?: Array<{
+    date?: string;
+    name?: string;
+    lost: number;
+    found: number;
+    claims: number;
+  }>;
+  categoryBreakdown?: Array<{
+    name: string;
+    lost: number;
+    found: number;
+  }>;
 }
 
 const AdminDashboard = () => {
@@ -51,7 +63,9 @@ const AdminDashboard = () => {
       try {
         const response = await getDashboardStats();
         if (response.success) {
-          setStats(response.data);
+          // Map backend weeklyActivity/categoryBreakdown into chart-friendly arrays
+          const data = response.data;
+          setStats(data);
         } else {
           setError('Failed to fetch dashboard statistics');
         }
@@ -86,24 +100,28 @@ const AdminDashboard = () => {
 
   if (!stats) return null;
 
-  // Mock data for charts (in real app, this would come from API)
-  const weeklyData = [
-    { name: 'Mon', lost: 4, found: 3, claims: 2 },
-    { name: 'Tue', lost: 3, found: 5, claims: 1 },
-    { name: 'Wed', lost: 2, found: 4, claims: 3 },
-    { name: 'Thu', lost: 5, found: 2, claims: 2 },
-    { name: 'Fri', lost: 4, found: 6, claims: 4 },
-    { name: 'Sat', lost: 3, found: 3, claims: 1 },
-    { name: 'Sun', lost: 2, found: 4, claims: 2 },
-  ];
+  // Use real data from API if present, otherwise fallback to mock arrays
+  const weeklyData = stats?.weeklyActivity && Array.isArray(stats.weeklyActivity)
+    ? stats.weeklyActivity.map((d: any) => ({ name: d.name || new Date(d.date).toLocaleDateString(), lost: d.lost, found: d.found, claims: d.claims }))
+    : [
+        { name: 'Mon', lost: 4, found: 3, claims: 2 },
+        { name: 'Tue', lost: 3, found: 5, claims: 1 },
+        { name: 'Wed', lost: 2, found: 4, claims: 3 },
+        { name: 'Thu', lost: 5, found: 2, claims: 2 },
+        { name: 'Fri', lost: 4, found: 6, claims: 4 },
+        { name: 'Sat', lost: 3, found: 3, claims: 1 },
+        { name: 'Sun', lost: 2, found: 4, claims: 2 },
+      ];
 
-  const categoryData = [
-    { name: 'Electronics', lost: 12, found: 8 },
-    { name: 'Clothing', lost: 8, found: 6 },
-    { name: 'Books', lost: 15, found: 12 },
-    { name: 'Accessories', lost: 6, found: 4 },
-    { name: 'Others', lost: 9, found: 7 },
-  ];
+  const categoryData = stats?.categoryBreakdown && Array.isArray(stats.categoryBreakdown)
+    ? stats.categoryBreakdown.map((c: any) => ({ name: c.name, lost: c.lost, found: c.found }))
+    : [
+        { name: 'Electronics', lost: 12, found: 8 },
+        { name: 'Clothing', lost: 8, found: 6 },
+        { name: 'Books', lost: 15, found: 12 },
+        { name: 'Accessories', lost: 6, found: 4 },
+        { name: 'Others', lost: 9, found: 7 },
+      ];
 
   return (
     <div className="space-y-6">
