@@ -9,6 +9,13 @@ import About from "./pages/About";
 import Dashboard from "./pages/Dashboard";
 import Report from "./pages/Report";
 import NotFound from "./pages/NotFound";
+import AdminLogin from "./pages/AdminLogin";
+import AdminLayout from "./components/admin/AdminLayout";
+import ProtectedAdminRoute from "./components/admin/ProtectedAdminRoute";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminLostItems from "./pages/admin/AdminLostItems";
+import AdminFoundItems from "./pages/admin/AdminFoundItems";
+import AdminUsers from "./pages/admin/AdminUsers";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +31,7 @@ const App = () => (
           <Route path="/about" element={<About />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/report" element={<Report />} />
+          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
