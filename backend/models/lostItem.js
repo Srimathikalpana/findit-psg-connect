@@ -27,4 +27,22 @@ const lostItemSchema = new mongoose.Schema({
   isUrgent: { type: Boolean, default: false }
 }, { timestamps: true });
 
+// Pre-save middleware to generate embeddings for semantic matching
+lostItemSchema.pre('save', async function(next) {
+  try {
+    // Only generate embeddings if they don't exist or if the description has changed
+    const needsDescriptionEmbedding = !this.descriptionEmbedding || this.isModified('itemName') || this.isModified('description') || this.isModified('category');
+
+    if (needsDescriptionEmbedding) {
+      const { generateItemEmbedding } = require('../utils/semanticMatch');
+      await generateItemEmbedding(this);
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Error generating embeddings in pre-save hook:', error);
+    next(error);
+  }
+});
+
 module.exports = mongoose.model('LostItem', lostItemSchema);

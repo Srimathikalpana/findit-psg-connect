@@ -32,4 +32,30 @@ foundItemSchema.pre('save', function(next) {
   next();
 });
 
+// Pre-save middleware to generate embeddings for semantic matching
+foundItemSchema.pre('save', async function(next) {
+  try {
+    // Only generate embeddings if they don't exist or if the description/answer has changed
+    const needsDescriptionEmbedding = !this.descriptionEmbedding || this.isModified('itemName') || this.isModified('description') || this.isModified('category');
+    const needsAnswerEmbedding = !this.answerEmbedding || this.isModified('correctAnswer');
+
+    if (needsDescriptionEmbedding || needsAnswerEmbedding) {
+      const { generateItemEmbedding, generateAnswerEmbedding } = require('../utils/semanticMatch');
+      
+      if (needsDescriptionEmbedding) {
+        await generateItemEmbedding(this);
+      }
+      
+      if (needsAnswerEmbedding && this.correctAnswer) {
+        this.answerEmbedding = await generateAnswerEmbedding(this.correctAnswer);
+      }
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Error generating embeddings in pre-save hook:', error);
+    next(error);
+  }
+});
+
 module.exports = mongoose.model('FoundItem', foundItemSchema);
