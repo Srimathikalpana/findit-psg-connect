@@ -4,6 +4,7 @@ const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
 const stringSimilarity = require('string-similarity');
 const { notifyMatchedUsers } = require('../utils/emailService');
+const { verifyAnswerSemantically } = require('../utils/semanticMatch');
 
 // Verify answer and immediately confirm claim by marking both items as claimed
 exports.verifyAndClaim = async (req, res) => {
@@ -36,13 +37,19 @@ exports.verifyAndClaim = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Items are not available for claiming' });
     }
 
-    const similarity = stringSimilarity.compareTwoStrings(
-      (answer || '').toLowerCase().trim(),
-      (foundItem.correctAnswer || '').toLowerCase().trim()
+    // Use semantic verification instead of exact string matching
+    const verificationResult = await verifyAnswerSemantically(
+      (answer || '').trim(),
+      (foundItem.correctAnswer || '').trim()
     );
 
-    if (similarity < 0.9) {
-      return res.status(200).json({ success: false, message: 'Verification failed. Incorrect answer.' });
+    if (!verificationResult.isVerified) {
+      return res.status(200).json({ 
+        success: false, 
+        message: 'Verification failed. Incorrect answer.',
+        similarity: verificationResult.similarity,
+        threshold: verificationResult.threshold
+      });
     }
 
     // Create a completed claim and mark items claimed immediately
@@ -115,23 +122,26 @@ exports.verifyAnswer = async (req, res) => {
       });
     }
 
-    // Compare answer with correct answer using string similarity
-    const similarity = stringSimilarity.compareTwoStrings(
-      answer.toLowerCase().trim(),
-      foundItem.correctAnswer.toLowerCase().trim()
+    // Use semantic verification instead of exact string matching
+    const verificationResult = await verifyAnswerSemantically(
+      answer.trim(),
+      foundItem.correctAnswer.trim()
     );
 
-    // If similarity is greater than 0.8 (80% match), consider it correct
-    if (similarity > 0.8) {
+    if (verificationResult.isVerified) {
       return res.json({
         success: true,
-        message: 'Answer verified successfully'
+        message: 'Answer verified successfully',
+        similarity: verificationResult.similarity,
+        threshold: verificationResult.threshold
       });
     }
 
     return res.json({
       success: false,
-      message: 'Incorrect answer'
+      message: 'Incorrect answer',
+      similarity: verificationResult.similarity,
+      threshold: verificationResult.threshold
     });
   } catch (error) {
     console.error('Error verifying answer:', error);

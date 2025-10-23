@@ -1,11 +1,17 @@
 const stringSimilarity = require('string-similarity');
+const { lexicalSynonymSimilarity } = require('./synonymService');
 
-function calculateItemSimilarity(item1, item2) {
+async function calculateItemSimilarity(item1, item2) {
   // Combine relevant fields for comparison
-  const text1 = `${item1.itemName} ${item1.description} ${item1.category || ''}`.toLowerCase();
-  const text2 = `${item2.itemName} ${item2.description} ${item2.category || ''}`.toLowerCase();
-  
-  return stringSimilarity.compareTwoStrings(text1, text2);
+  const text1 = `${item1.itemName} ${item1.description} ${item1.category || ''}`;
+  const text2 = `${item2.itemName} ${item2.description} ${item2.category || ''}`;
+
+  // Use synonym-aware lexical similarity (falls back to plain lexical similarity)
+  try {
+    return await lexicalSynonymSimilarity(text1, text2);
+  } catch (e) {
+    return stringSimilarity.compareTwoStrings(text1.toLowerCase(), text2.toLowerCase());
+  }
 }
 
 function isLocationNearby(location1, location2) {
@@ -41,8 +47,8 @@ async function findMatches(newItem, existingItems) {
   const matches = [];
   
   for (const item of existingItems) {
-    // Check item similarity
-    const similarity = calculateItemSimilarity(newItem, item);
+  // Check item similarity
+  const similarity = await calculateItemSimilarity(newItem, item);
 
     // Get locations based on item type
     const newItemLocation = newItem.placeLost || newItem.placeFound;

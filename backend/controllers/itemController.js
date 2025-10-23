@@ -1,114 +1,9 @@
 const { findMatches, calculateItemSimilarity, isLocationNearby, isTimeValid } = require('../utils/itemMatcher');
+const { findVerifiedMatches, verifyAnswerSemantically } = require('../utils/semanticMatch');
 const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
 const Claim = require('../models/claim');
-const stringSimilarity = require('string-similarity');
-const { notifyPotentialMatch } = require('../utils/emailService');
-
-// Get matches for a lost item
-exports.getMatchesForLostItem = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const lostItem = await LostItem.findById(id);
-    if (!lostItem) {
-      return res.status(404).json({
-        success: false,
-        message: 'Lost item not found'
-      });
-    }
-
-    // Find potential matches from found items
-    const foundItems = await FoundItem.find({ 
-      status: 'active',
-      user: { $ne: req.user._id } // Exclude user's own found items
-    });
-
-    const matches = [];
-    foundItems.forEach(foundItem => {
-      const nameSimilarity = stringSimilarity.compareTwoStrings(
-        lostItem.itemName.toLowerCase(),
-        foundItem.itemName.toLowerCase()
-      );
-      
-      const descriptionSimilarity = stringSimilarity.compareTwoStrings(
-        lostItem.description.toLowerCase(),
-        foundItem.description.toLowerCase()
-      );
-
-      const locationSimilarity = stringSimilarity.compareTwoStrings(
-        lostItem.placeLost.toLowerCase(),
-        foundItem.placeFound.toLowerCase()
-      );
-
-      const overallScore = (nameSimilarity * 0.5) + (descriptionSimilarity * 0.3) + (locationSimilarity * 0.2);
-
-      if (overallScore > 0.6) {
-        matches.push({
-          ...foundItem.toObject(),
-          matchScore: overallScore
-        });
-      }
-    });
-
-    res.json({
-      success: true,
-      matches: matches.sort((a, b) => b.matchScore - a.matchScore)
-    });
-
-  } catch (error) {
-    console.error('Error getting matches:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error finding matches'
-    });
-  }
-};
-
-// NLP Matching Service
-const findMatchesService = async (foundItem) => {
-  try {
-    const lostItems = await LostItem.find({ status: 'active' }).populate('user', 'name email studentId');
-    const matches = [];
-
-    lostItems.forEach(lostItem => {
-      // Calculate similarity scores
-      const nameSimilarity = stringSimilarity.compareTwoStrings(
-        foundItem.itemName.toLowerCase(), 
-        lostItem.itemName.toLowerCase()
-      );
-      
-      const descriptionSimilarity = stringSimilarity.compareTwoStrings(
-        foundItem.description.toLowerCase(), 
-        lostItem.description.toLowerCase()
-      );
-
-      const locationSimilarity = stringSimilarity.compareTwoStrings(
-        foundItem.placeFound.toLowerCase(), 
-        lostItem.placeLost.toLowerCase()
-      );
-
-      // Weighted average score
-      const overallScore = (nameSimilarity * 0.5) + (descriptionSimilarity * 0.3) + (locationSimilarity * 0.2);
-
-      if (overallScore > 0.6) { // Threshold for potential match
-        matches.push({
-          lostItem,
-          score: overallScore,
-          nameSimilarity,
-          descriptionSimilarity,
-          locationSimilarity
-        });
-      }
-    });
-
-    // Sort by score descending
-    return matches.sort((a, b) => b.score - a.score);
-  } catch (error) {
-    console.error('Error finding matches:', error);
-    return [];
-  }
-};
 
 // Create Lost Item
 exports.createLostItem = async (req, res) => {
@@ -150,31 +45,59 @@ exports.createLostItem = async (req, res) => {
       type: 'lost'
     });
 
+    // Save the lost item first (may be used by matching services)
+    await lostItem.save();
+
     // Find potential matches in found items
-    const foundItems = await FoundItem.find({ 
-      status: 'active'  // Only look for unclaimed found items
+    const foundItems = await FoundItem.find({ status: 'active' });
+
+    // Attempt semantic matching (the semanticMatch utilities will gracefully fallback to lexical-only matching
+    // when embeddings are unavailable or disabled). This avoids skipping matching entirely when OpenAI quota is exhausted.
+    let semanticMatches = [];
+    try {
+      semanticMatches = await findVerifiedMatches(lostItem, foundItems);
+    } catch (semErr) {
+      console.error('Semantic matching failed, falling back to traditional matching:', semErr);
+      semanticMatches = [];
+    }
+
+    // Also get traditional matches for comparison
+    const traditionalMatches = await findMatches(lostItem, foundItems);
+    
+    // Combine and deduplicate matches
+    const allMatches = [...semanticMatches];
+    traditionalMatches.forEach(traditionalMatch => {
+      const exists = allMatches.some(semanticMatch => 
+        semanticMatch.itemId.toString() === traditionalMatch.itemId.toString()
+      );
+      if (!exists) {
+        allMatches.push({
+          ...traditionalMatch,
+          verification: null,
+          isVerifiedMatch: false,
+          matchType: 'traditional'
+        });
+      }
     });
     
-    const potentialMatches = await findMatches(lostItem, foundItems);
-    
     // Save matches reference in lost item
-    lostItem.potentialMatches = potentialMatches.map(match => match.itemId);
+    lostItem.potentialMatches = allMatches.map(match => match.itemId);
     await lostItem.save();
 
     // Add reference to matched found items
-    for (const match of potentialMatches) {
+    for (const match of allMatches) {
       await FoundItem.findByIdAndUpdate(match.itemId, {
         $addToSet: { matchedWith: lostItem._id }
       });
     }
 
-    await lostItem.save();
-
     res.status(201).json({ 
       success: true,
       message: 'Lost item reported successfully', 
       data: lostItem,
-      matches: potentialMatches
+      matches: allMatches,
+      semanticMatches: semanticMatches,
+      traditionalMatches: traditionalMatches
     });
   } catch (error) {
     console.error('Create lost item error:', error);
@@ -229,19 +152,75 @@ exports.createFoundItem = async (req, res) => {
       user: req.user._id
     });
 
+    // Save the found item first to generate embeddings
     await foundItem.save();
 
-    // Find potential matches
-    const matches = await findMatchesService(foundItem);
+    // Find potential matches using semantic matching
+    // Load active lost items (do not require embeddings — semanticMatch will fall back to lexical similarity if needed)
+    const lostItems = await LostItem.find({ status: 'active' });
+
+    // Use semantic matching (with lexical fallback) to find potential matches
+    const semanticMatches = await findVerifiedMatches(foundItem, lostItems);
+    
+    // Also get traditional matches for comparison
+    const traditionalMatches = await findMatches(foundItem, lostItems);
+    
+    // Combine and deduplicate matches
+    const allMatches = semanticMatches.map(match => ({
+      ...match,
+      lostItem: match.item,
+      score: match.similarity,
+      matchType: 'semantic'
+    }));
+    
+    traditionalMatches.forEach(traditionalMatch => {
+      try {
+        // traditionalMatch may have different shapes depending on source (itemId, lostItem, etc.)
+        const traditionalLostId = (
+          (traditionalMatch.lostItem && traditionalMatch.lostItem._id) ||
+          traditionalMatch.itemId ||
+          traditionalMatch.lostItemId ||
+          null
+        );
+
+        if (!traditionalLostId) return; // nothing we can compare
+
+        const traditionalLostIdStr = String(traditionalLostId);
+
+        const exists = allMatches.some(semanticMatch => {
+          return semanticMatch.lostItem && semanticMatch.lostItem._id && String(semanticMatch.lostItem._id) === traditionalLostIdStr;
+        });
+
+        if (!exists) {
+          // Try to attach the full lostItem object if possible
+          const lostObj = lostItems.find(li => String(li._id) === traditionalLostIdStr) || null;
+          allMatches.push({
+            lostItem: lostObj,
+            itemId: traditionalLostId,
+            similarity: traditionalMatch.similarity || traditionalMatch.score || 0,
+            verification: null,
+            isVerifiedMatch: false,
+            matchType: 'traditional'
+          });
+        }
+      } catch (e) {
+        console.warn('Skipping a traditional match due to unexpected shape:', e && e.message);
+      }
+    });
 
     // For each matched lost item, add this found item to its potentialMatches
-    if (Array.isArray(matches) && matches.length > 0) {
+    if (Array.isArray(allMatches) && allMatches.length > 0) {
       const bulk = LostItem.collection.initializeUnorderedBulkOp();
-      matches.forEach(m => {
-        if (m.lostItem && m.lostItem._id) {
-          bulk.find({ _id: m.lostItem._id, status: 'active' }).updateOne({
-            $addToSet: { potentialMatches: foundItem._id }
-          });
+      allMatches.forEach(m => {
+        const id = m?.lostItem?._id || m?.itemId || m?.lostItemId || null;
+        if (id) {
+          try {
+            bulk.find({ _id: id, status: 'active' }).updateOne({
+              $addToSet: { potentialMatches: foundItem._id }
+            });
+          } catch (e) {
+            console.warn('Failed to queue bulk update for lostItem id', id, e && e.message);
+          }
         }
       });
       if (bulk.length > 0) {
@@ -250,7 +229,7 @@ exports.createFoundItem = async (req, res) => {
 
       // Notify lost item owners about potential match (best-effort)
       try {
-        for (const m of matches) {
+        for (const m of allMatches) {
           if (m.lostItem && m.lostItem.user && m.lostItem.user.email) {
             const lostUser = { name: m.lostItem.user.name, email: m.lostItem.user.email };
             const foundSummary = {
@@ -278,7 +257,9 @@ exports.createFoundItem = async (req, res) => {
       success: true,
       message: 'Found item reported successfully', 
       data: foundItem,
-      matches: matches.slice(0, 5) // Return top 5 matches
+      matches: allMatches.slice(0, 5), // Return top 5 matches
+      semanticMatches: semanticMatches,
+      traditionalMatches: traditionalMatches
     });
   } catch (error) {
     console.error('Create found item error:', error);
@@ -759,6 +740,56 @@ exports.getFoundItemMatches = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error finding matches'
+    });
+  }
+};
+
+// Semantic verification endpoint
+exports.verifyAnswerSemantically = async (req, res) => {
+  try {
+    const { foundItemId, providedAnswer } = req.body;
+
+    if (!foundItemId || !providedAnswer) {
+      return res.status(400).json({
+        success: false,
+        message: 'foundItemId and providedAnswer are required'
+      });
+    }
+
+    const foundItem = await FoundItem.findById(foundItemId);
+    if (!foundItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Found item not found'
+      });
+    }
+
+    if (!foundItem.correctAnswer) {
+      return res.status(400).json({
+        success: false,
+        message: 'No verification answer available for this found item'
+      });
+    }
+
+    // Perform semantic verification (uses default/env-configured threshold)
+    const verificationResult = await verifyAnswerSemantically(providedAnswer, foundItem.correctAnswer);
+
+    res.json({
+      success: true,
+      verification: verificationResult,
+      foundItem: {
+        id: foundItem._id,
+        itemName: foundItem.itemName,
+        verificationQuestion: foundItem.verificationQuestion
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in semantic verification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error verifying answer',
+      error: error.message
     });
   }
 };

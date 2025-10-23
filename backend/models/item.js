@@ -40,6 +40,16 @@ const itemSchema = new mongoose.Schema({
     type: String,
     enum: ['lost', 'found'],
     required: true
+  },
+  // AI embedding for semantic matching
+  descriptionEmbedding: {
+    type: [Number],
+    default: null
+  },
+  // Answer embedding for verification
+  answerEmbedding: {
+    type: [Number],
+    default: null
   }
 }, { timestamps: true });
 

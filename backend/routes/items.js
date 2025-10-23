@@ -10,9 +10,9 @@ const {
   getItemById,
   createFoundItem,
   getUserItems,
-  getMatchesForLostItem,
   updateItem,
-  deleteItem
+  deleteItem,
+  verifyAnswerSemantically
 } = require('../controllers/itemController');
 
 // Public routes (viewing items)
@@ -28,11 +28,14 @@ router.get('/found-items/:id', getItemById);
 router.post('/lost-items', auth, createLostItem);
 router.post('/found-items', auth, createFoundItem);
 router.get('/my-items', auth, getUserItems);
-router.get('/matches/:id', auth, getMatchesForLostItem);
+router.get('/matches/:id', auth, getLostItemMatches);
 router.put('/lost-items/:id', auth, updateItem);
 router.put('/found-items/:id', auth, updateItem);
 router.delete('/lost-items/:id', auth, deleteItem);
 router.delete('/found-items/:id', auth, deleteItem);
 router.get('/lost-items/:id/matches', auth, getLostItemMatches);
+
+// Semantic verification endpoint
+router.post('/verify-answer', auth, verifyAnswerSemantically);
 
 module.exports = router;
