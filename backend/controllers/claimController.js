@@ -97,10 +97,26 @@ exports.verifyAndClaim = async (req, res) => {
       console.error('Error sending notification emails:', emailErr);
     }
 
+    // Populate finder's user info for contact details
+    await foundItem.populate('user', 'name email studentId');
+
+    // Prepare contact info for the finder
+    const finderContactInfo = {
+      name: foundItem.user?.name || '',
+      email: foundItem.user?.email || '',
+      studentId: foundItem.user?.studentId || '',
+      phone: foundItem.contactInfo?.phone || ''
+    };
+
     return res.json({
       success: true,
       message: 'Claim verified and completed. Items marked as claimed.',
-      data: { claimId: claim._id, lostItem, foundItem }
+      data: { 
+        claimId: claim._id, 
+        lostItem, 
+        foundItem,
+        finderContactInfo // Include finder's contact info for instant display
+      }
     });
   } catch (error) {
     console.error('Verify and claim error:', error);

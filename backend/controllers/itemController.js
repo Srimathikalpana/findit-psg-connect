@@ -80,6 +80,19 @@ exports.createLostItem = async (req, res) => {
       }
     });
     
+    // Enrich matches with found item details (description, placeFound) where possible
+    for (const match of allMatches) {
+      try {
+        const found = foundItems.find(fi => String(fi._id) === String(match.itemId));
+        if (found) {
+          match.foundDescription = found.description;
+          match.foundAt = found.placeFound;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
     // Save matches reference in lost item
     lostItem.potentialMatches = allMatches.map(match => match.itemId);
     await lostItem.save();
@@ -408,7 +421,13 @@ exports.getUserItems = async (req, res) => {
     if (!type || type === 'lost') {
       lostItems = await LostItem.find({ user: userId })
         .sort({ createdAt: -1 })
-        .populate({ path: 'potentialMatches', match: { status: 'active' } })
+        // populate potentialMatches with useful fields and populate the reporter user
+        .populate({ 
+          path: 'potentialMatches', 
+          match: { status: 'active' },
+          select: 'itemName description placeFound dateFound category status user verificationQuestion contactInfo',
+          populate: { path: 'user', select: 'name email studentId' }
+        })
         .populate({ path: 'matchRefs.foundItem', select: 'itemName description placeFound dateFound category status user contactInfo verificationQuestion', strictPopulate: false, populate: { path: 'user', select: 'name email studentId' } });
     }
 
@@ -438,7 +457,8 @@ exports.getUserItems = async (req, res) => {
       if (c.foundItem) byFoundId.set(c.foundItem._id.toString(), c);
     }
 
-    const serializeLost = lostItems.map(li => {
+    const serializeLost = [];
+    for (const li of lostItems) {
       const claim = byLostId.get(li._id.toString());
       let claimedCounterpart = undefined;
       if (li.status === 'claimed' && claim && claim.foundItem && claim.foundItem.user) {
@@ -449,8 +469,40 @@ exports.getUserItems = async (req, res) => {
           phone: claim.foundItem.contactInfo?.phone
         };
       }
-      return { ...li.toObject(), claimedCounterpart };
-    });
+
+      const obj = li.toObject();
+
+      // If potentialMatches are populated, convert them to objects with similarity and foundItem
+      if (Array.isArray(li.potentialMatches) && li.potentialMatches.length > 0) {
+        const normalized = [];
+        for (const pm of li.potentialMatches) {
+          try {
+            // pm may be an ObjectId or a populated document
+            const foundDoc = (typeof pm === 'object' && pm !== null) ? pm : await FoundItem.findById(pm).populate('user', 'name email studentId');
+            if (!foundDoc) continue;
+            const similarity = await calculateItemSimilarity(li, foundDoc);
+            normalized.push({
+              similarity,
+              foundItem: {
+                _id: foundDoc._id,
+                itemName: foundDoc.itemName,
+                description: foundDoc.description,
+                placeFound: foundDoc.placeFound,
+                dateFound: foundDoc.dateFound,
+                status: foundDoc.status,
+                verificationQuestion: foundDoc.verificationQuestion,
+                user: foundDoc.user
+              }
+            });
+          } catch (e) {
+            console.warn('Error normalizing potential match for lost item', li._id, e && e.message);
+          }
+        }
+        obj.potentialMatches = normalized;
+      }
+
+      serializeLost.push({ ...obj, claimedCounterpart });
+    }
 
     const serializeFound = foundItems.map(fi => {
       const claim = byFoundId.get(fi._id.toString());
