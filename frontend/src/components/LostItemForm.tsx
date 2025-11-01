@@ -1,5 +1,6 @@
 import { useState } from "react"
 import axios from "axios"
+import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Search, MapPin, Calendar, Package } from "lucide-react"
+import { Search, MapPin, Calendar, Package, CheckCircle2, Loader2 } from "lucide-react"
 
 const locations = [
   "Library",
@@ -46,21 +47,25 @@ export const LostItemForm = () => {
     contactPhone: ""
   })
   const { toast } = useToast()
+  const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success'>('idle')
 
   const handleSubmit = async(e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setSubmitStatus('submitting')
 
      try {
       const token = localStorage.getItem('token')
-      console.log('Submitting with token:', token?.substring(0, 20) + '...');
       if (!token) {
         toast({
           title: "Authentication Error",
           description: "Please login to report a lost item",
           variant: "destructive"
         })
+        setIsSubmitting(false)
+        setSubmitStatus('idle')
         return
       }
 
@@ -81,27 +86,62 @@ export const LostItemForm = () => {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          withCredentials: true       }
+          withCredentials: true
+        }
       )  
+      
     if (response.data.success) {
+        const newItem = response.data.data
+        
+        // OPTIMISTIC UPDATE: Add to cache immediately
+        const cachedData = sessionStorage.getItem('dashboard_data')
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData)
+            // Add new lost item to cache (with empty matches initially)
+            parsed.lostItems = [...(parsed.lostItems || []), {
+              ...newItem,
+              potentialMatches: []
+            }]
+            sessionStorage.setItem('dashboard_data', JSON.stringify(parsed))
+            sessionStorage.setItem('dashboard_timestamp', Date.now().toString())
+          } catch (e) {
+            console.error('Error updating cache:', e)
+          }
+        }
+        
+        // Show success message
+        setSubmitStatus('success')
         toast({
-          title: "Lost item reported successfully!",
-          description: "We'll notify you if someone finds your item.",
+          title: "Your report has been submitted successfully! ✅",
+          description: "Redirecting to dashboard...",
         })
-    // Reset form
-    setFormData({
-      itemName: "",
-      description: "",
-      dateLost: "",
-      location: "",
-      category: "",
-      color: "",
-      brand: "",
-      contactPhone: ""
-    })
-  }
+        
+        // Clear cache flag to force refresh when dashboard loads
+        sessionStorage.setItem('dashboard_needs_refresh', 'true')
+        
+        // Reset form
+        setFormData({
+          itemName: "",
+          description: "",
+          dateLost: "",
+          location: "",
+          category: "",
+          color: "",
+          brand: "",
+          contactPhone: ""
+        })
+        
+        // Navigate immediately after short delay to show success message
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true })
+          // Trigger dashboard refresh event
+          window.dispatchEvent(new CustomEvent('dashboard-refresh'))
+        }, 800)
+    }
   } catch (error: any) {
     console.error('Submission error:', error.response?.data || error.message);
+    setSubmitStatus('idle')
       toast({
       title: "Error reporting lost item",
       description: error.response?.data?.message || "Something went wrong",
@@ -238,8 +278,25 @@ export const LostItemForm = () => {
             />
           </div>
 
-          <Button type="submit" className="w-full" size="lg">
-            Report Lost Item
+          <Button 
+            type="submit" 
+            className="w-full" 
+            size="lg"
+            disabled={isSubmitting || submitStatus === 'success'}
+          >
+            {submitStatus === 'success' ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Submitted! Redirecting...
+              </>
+            ) : isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              "Report Lost Item"
+            )}
           </Button>
         </form>
       </CardContent>

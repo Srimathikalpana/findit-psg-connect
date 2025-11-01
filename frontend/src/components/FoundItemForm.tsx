@@ -1,5 +1,6 @@
 import { useState } from "react"
 import axios from "axios"
+import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Eye, MapPin, Calendar, Package } from "lucide-react"
+import { Eye, MapPin, Calendar, Package, CheckCircle2, Loader2 } from "lucide-react"
 
 const locations = [
   "Library",
@@ -49,15 +50,17 @@ export const FoundItemForm = () => {
     contactPhone: ""
   })
   const { toast } = useToast()
+  const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success'>('idle')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setSubmitStatus('submitting')
 
     try {
       const token = localStorage.getItem('token')
-      console.log('Submitting found item with token:', token?.substring(0, 20) + '...');
       
       if (!token) {
         toast({
@@ -65,6 +68,8 @@ export const FoundItemForm = () => {
           description: "Please login to report a found item",
           variant: "destructive"
         })
+        setIsSubmitting(false)
+        setSubmitStatus('idle')
         return
       }
 
@@ -93,9 +98,27 @@ export const FoundItemForm = () => {
       )
 
       if (response.data.success) {
+        const newItem = response.data.data
+        
+        // OPTIMISTIC UPDATE: Add to cache immediately
+        const cachedData = sessionStorage.getItem('dashboard_data')
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData)
+            // Add new found item to cache
+            parsed.foundItems = [...(parsed.foundItems || []), newItem]
+            sessionStorage.setItem('dashboard_data', JSON.stringify(parsed))
+            sessionStorage.setItem('dashboard_timestamp', Date.now().toString())
+          } catch (e) {
+            console.error('Error updating cache:', e)
+          }
+        }
+        
+        // Show success message
+        setSubmitStatus('success')
         toast({
-          title: "Found item reported successfully!",
-          description: "We'll check for potential matches and notify the owner if found.",
+          title: "Your report has been submitted successfully! ✅",
+          description: "Redirecting to dashboard...",
         })
 
         // Show matches if any
@@ -120,9 +143,20 @@ export const FoundItemForm = () => {
           correctAnswer: "",
           contactPhone: ""
         })
+        
+        // Clear cache flag to force refresh when dashboard loads
+        sessionStorage.setItem('dashboard_needs_refresh', 'true')
+        
+        // Navigate immediately after short delay to show success message
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true })
+          // Trigger dashboard refresh event
+          window.dispatchEvent(new CustomEvent('dashboard-refresh'))
+        }, 800)
       }
     } catch (error: any) {
       console.error('Submission error:', error.response?.data || error.message);
+      setSubmitStatus('idle')
       toast({
         title: "Error reporting found item",
         description: error.response?.data?.message || "Something went wrong",
@@ -310,9 +344,21 @@ export const FoundItemForm = () => {
             variant="default" 
             className="w-full bg-green-600 hover:bg-green-700" 
             size="lg"
-            disabled={isSubmitting}
+            disabled={isSubmitting || submitStatus === 'success'}
           >
-            {isSubmitting ? "Reporting..." : "Report Found Item"}
+            {submitStatus === 'success' ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Submitted! Redirecting...
+              </>
+            ) : isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Reporting...
+              </>
+            ) : (
+              "Report Found Item"
+            )}
           </Button>
         </form>
       </CardContent>

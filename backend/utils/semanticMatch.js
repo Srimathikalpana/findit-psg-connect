@@ -1,35 +1,52 @@
-const OpenAI = require('openai');
-const { config } = require('dotenv');
 const stringSimilarity = require('string-similarity');
 const { lexicalSynonymSimilarity } = require('./synonymService');
 
-// Load environment variables
-config();
-
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Model configuration
+const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+let modelPromise = null; // Cache for the model
 
 // Embedding cache to avoid recomputing
 const embeddingCache = new Map();
 
 /**
- * Generate embedding for text using OpenAI's text-embedding-3-small model
+ * Initialize and cache the model on first use
+ * @returns {Promise<Object>} - The feature extraction pipeline
+ */
+async function getModel() {
+  if (modelPromise) {
+    return modelPromise;
+  }
+
+  modelPromise = (async () => {
+    try {
+      console.log('🤖 Loading local embedding model:', MODEL_NAME);
+      // Dynamic import for ES module
+      const { pipeline } = await import('@xenova/transformers');
+      const model = await pipeline('feature-extraction', MODEL_NAME);
+      console.log('✅ Model loaded and cached successfully');
+      return model;
+    } catch (error) {
+      console.error('❌ Error loading model:', error);
+      throw error;
+    }
+  })();
+
+  return modelPromise;
+}
+
+/**
+ * Generate embedding for text using local all-MiniLM-L6-v2 model
  * @param {string} text - The text to generate embedding for
- * @returns {Promise<Array<number>>} - The embedding vector
+ * @returns {Promise<Array<number>>} - The embedding vector (384 dimensions)
  */
 async function generateEmbedding(text) {
   try {
-    // Allow disabling OpenAI embeddings in environments without quota or by choice
-    if (process.env.DISABLE_OPENAI_EMBEDDINGS === 'true') {
-      console.warn('OpenAI embeddings disabled via DISABLE_OPENAI_EMBEDDINGS. Returning null embedding.');
-      return null;
-    }
     // Check cache first
     const cacheKey = text.toLowerCase().trim();
     if (embeddingCache.has(cacheKey)) {
-      console.log('Using cached embedding for:', cacheKey.substring(0, 50) + '...');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📋 Using cached embedding for:', cacheKey.substring(0, 50) + '...');
+      }
       return embeddingCache.get(cacheKey);
     }
 
@@ -40,31 +57,59 @@ async function generateEmbedding(text) {
       throw new Error('Text cannot be empty');
     }
 
-    let embedding = null;
-    try {
-      const response = await openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: normalizedText,
-      });
+    // Load model if not already loaded
+    const extractor = await getModel();
+    
+    // Generate embedding
+    const output = await extractor(normalizedText, {
+      pooling: 'mean',
+      normalize: true
+    });
 
-      embedding = response.data[0].embedding;
-    } catch (openaiErr) {
-      // Handle common quota or API errors gracefully and fallback to null embedding
-      console.error('OpenAI embedding error:', openaiErr?.message || openaiErr);
-      // If it's an insufficient_quota error, surface a concise warning but continue
-      if (openaiErr?.response?.data?.error?.code === 'insufficient_quota' || openaiErr?.code === 'insufficient_quota') {
-        console.warn('OpenAI insufficient_quota: embeddings not available. Falling back to lexical-only matching.');
+    // Convert tensor to array
+    // @xenova/transformers returns a tensor object with .data and .tolist() methods
+    let embedding;
+    if (output && typeof output.tolist === 'function') {
+      // Use tolist() method if available (recommended way)
+      embedding = output.tolist();
+      // If it's nested (batch output), flatten it
+      if (Array.isArray(embedding[0]) && !Array.isArray(embedding[0][0])) {
+        embedding = embedding[0]; // Take first item if batch
       }
-      embedding = null;
+    } else if (output && output.data) {
+      // Fallback to .data property
+      embedding = Array.from(output.data);
+    } else if (Array.isArray(output)) {
+      embedding = output;
+      // Flatten nested arrays
+      if (Array.isArray(embedding[0]) && !Array.isArray(embedding[0][0])) {
+        embedding = embedding[0];
+      }
+    } else {
+      // Last resort: try to convert to array
+      embedding = Array.from(output);
+    }
+
+    // Ensure we have a valid 1D array
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+      throw new Error('Failed to generate valid embedding');
     }
     
-  // Cache the embedding (or null sentinel) so we don't repeatedly call the API on failure
-  embeddingCache.set(cacheKey, embedding);
-  console.log('Generated new embedding for:', cacheKey.substring(0, 50) + '...');
+    // Flatten if somehow still nested
+    if (Array.isArray(embedding[0]) && typeof embedding[0][0] === 'number') {
+      embedding = embedding.flat();
+    }
+
+    // Cache the embedding
+    embeddingCache.set(cacheKey, embedding);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('✨ Generated new embedding for:', cacheKey.substring(0, 50) + '...', `(${embedding.length} dimensions)`);
+    }
     
     return embedding;
   } catch (error) {
-    console.error('Error generating embedding:', error);
+    console.error('❌ Error generating embedding:', error);
     // Don't throw - return null to allow graceful fallback to lexical matching
     return null;
   }
@@ -77,8 +122,13 @@ async function generateEmbedding(text) {
  * @returns {number} - Cosine similarity score (0-1)
  */
 function calculateCosineSimilarity(embedding1, embedding2) {
+  if (!embedding1 || !embedding2) {
+    return 0;
+  }
+
   if (embedding1.length !== embedding2.length) {
-    throw new Error('Embedding vectors must have the same length');
+    console.warn(`Embedding length mismatch: ${embedding1.length} vs ${embedding2.length}`);
+    return 0;
   }
 
   let dotProduct = 0;
@@ -121,7 +171,7 @@ async function generateItemEmbedding(item) {
     
     return item;
   } catch (error) {
-    console.error('Error generating item embedding:', error);
+    console.error('❌ Error generating item embedding:', error);
     // Graceful fallback: don't throw, return item with no embedding
     item.descriptionEmbedding = null;
     return item;
@@ -137,7 +187,7 @@ async function generateAnswerEmbedding(answer) {
   try {
     return await generateEmbedding(answer);
   } catch (error) {
-    console.error('Error generating answer embedding:', error);
+    console.error('❌ Error generating answer embedding:', error);
     // Return null so verification can fallback to lexical compare
     return null;
   }
@@ -159,6 +209,9 @@ async function findSemanticMatches(newItem, existingItems, threshold = 0.8) {
 
     const matches = [];
 
+    // Use provided threshold or environment override (SEMANTIC_COMBINED_THRESHOLD), default lowered to 0.7 for looser matching
+    const combinedThreshold = parseFloat(process.env.SEMANTIC_COMBINED_THRESHOLD || String(threshold || 0.7));
+
     for (const existingItem of existingItems) {
       // Compute lexical similarity (name + description) as fallback / augment
       // Use synonym-aware lexical similarity (falls back to string-similarity if API not available)
@@ -175,7 +228,7 @@ async function findSemanticMatches(newItem, existingItems, threshold = 0.8) {
             existingItem.descriptionEmbedding
           );
         } catch (e) {
-          console.warn('Error calculating cosine similarity for', existingItem._id, e.message);
+          console.warn('⚠️ Error calculating cosine similarity for', existingItem._id, e.message);
           semanticSim = 0;
         }
       } else {
@@ -183,18 +236,17 @@ async function findSemanticMatches(newItem, existingItems, threshold = 0.8) {
         semanticSim = lexicalSim;
       }
 
-  // Combine semantic and lexical scores. Weight semantic higher but allow lexical to rescue synonyms
-  // Tunable via environment variables: SEMANTIC_WEIGHT and LEXICAL_WEIGHT (they should sum to 1 ideally)
-  const semanticWeight = parseFloat(process.env.SEMANTIC_WEIGHT || '0.75');
-  const lexicalWeight = parseFloat(process.env.LEXICAL_WEIGHT || '0.25');
-  const combinedScore = (semanticSim * semanticWeight) + (lexicalSim * lexicalWeight);
+      // Combine semantic and lexical scores. Weight semantic higher but allow lexical to rescue synonyms
+      // Tunable via environment variables: SEMANTIC_WEIGHT and LEXICAL_WEIGHT (they should sum to 1 ideally)
+      const semanticWeight = parseFloat(process.env.SEMANTIC_WEIGHT || '0.75');
+      const lexicalWeight = parseFloat(process.env.LEXICAL_WEIGHT || '0.25');
+      const combinedScore = (semanticSim * semanticWeight) + (lexicalSim * lexicalWeight);
 
-      console.log(`Item ${existingItem._id} - semantic:${semanticSim.toFixed(3)} lexical:${lexicalSim.toFixed(3)} combined:${combinedScore.toFixed(3)}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`📊 Item ${existingItem._id} - semantic:${semanticSim.toFixed(3)} lexical:${lexicalSim.toFixed(3)} combined:${combinedScore.toFixed(3)}`);
+      }
 
-  // Use provided threshold or environment override (SEMANTIC_COMBINED_THRESHOLD), default lowered to 0.7 for looser matching
-  const combinedThreshold = parseFloat(process.env.SEMANTIC_COMBINED_THRESHOLD || String(threshold || 0.7));
-
-  if (combinedScore >= combinedThreshold) {
+      if (combinedScore >= combinedThreshold) {
         matches.push({
           item: existingItem,
           similarity: combinedScore,
@@ -207,27 +259,32 @@ async function findSemanticMatches(newItem, existingItems, threshold = 0.8) {
 
     // Sort by similarity (combined) score descending
     matches.sort((a, b) => b.similarity - a.similarity);
-    console.log(`Found ${matches.length} semantic+lexical matches above threshold ${threshold}`);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`✅ Found ${matches.length} semantic+lexical matches above threshold ${combinedThreshold}`);
+    }
+    
     return matches;
   } catch (error) {
-    console.error('Error finding semantic matches:', error);
+    console.error('❌ Error finding semantic matches:', error);
     throw error;
   }
 }
 
 /**
- * Verify answer using semantic similarity
+ * Verify answer using semantic similarity with local embeddings
+ * Handles synonyms and paraphrasing - e.g., "Black leather wallet" ≈ "Leather purse, black color"
  * @param {string} providedAnswer - The answer provided by the user
  * @param {string} correctAnswer - The correct answer from the found item
- * @param {number} threshold - Similarity threshold (default: 0.85)
+ * @param {number} threshold - Similarity threshold (default: 0.75 for leniency, can be adjusted to 0.8 for stricter)
  * @returns {Promise<Object>} - Verification result with similarity score
  */
-async function verifyAnswerSemantically(providedAnswer, correctAnswer, threshold = parseFloat(process.env.ANSWER_VERIFICATION_THRESHOLD || '0.8')) {
+async function verifyAnswerSemantically(providedAnswer, correctAnswer, threshold = parseFloat(process.env.ANSWER_VERIFICATION_THRESHOLD || '0.75')) {
   try {
     // Always compute lexical synonym-aware similarity (fast fallback if network disabled)
     const lexicalSim = await lexicalSynonymSimilarity(providedAnswer || '', correctAnswer || '');
 
-    // Try to generate embeddings for both answers. If embeddings available, compute semantic similarity
+    // Generate embeddings for both answers using local @xenova/transformers model
     const [providedEmbedding, correctEmbedding] = await Promise.all([
       generateAnswerEmbedding(providedAnswer),
       generateAnswerEmbedding(correctAnswer)
@@ -238,13 +295,13 @@ async function verifyAnswerSemantically(providedAnswer, correctAnswer, threshold
       try {
         semanticSim = calculateCosineSimilarity(providedEmbedding, correctEmbedding);
       } catch (e) {
-        console.warn('Error calculating cosine similarity for verification:', e.message);
+        console.warn('⚠️ Error calculating cosine similarity for verification:', e.message);
         semanticSim = null;
       }
     }
 
-    // Combine semantic and lexical strengths. If semanticSim is not available (null),
-    // use lexicalSim directly so missing embeddings don't drag the combined score down.
+    // Combine semantic and lexical strengths (75% semantic, 25% lexical)
+    // If semanticSim is not available (null), use lexicalSim directly
     const semanticWeight = parseFloat(process.env.SEMANTIC_WEIGHT || '0.75');
     const lexicalWeight = parseFloat(process.env.LEXICAL_WEIGHT || '0.25');
     let combined;
@@ -258,17 +315,20 @@ async function verifyAnswerSemantically(providedAnswer, correctAnswer, threshold
       combined = (semanticSim * sW) + (lexicalSim * lW);
     }
 
-    console.log(`Answer verification - semantic:${semanticSim === null ? 'n/a' : semanticSim.toFixed(3)} lexical:${lexicalSim.toFixed(3)} combined:${combined.toFixed(3)} Threshold: ${threshold}`);
+    // Lightweight logging - always show both similarity scores
+    const isVerified = combined >= threshold;
+    console.log(`🔍 Answer verification - Provided: "${providedAnswer}" | Correct: "${correctAnswer}"`);
+    console.log(`   📊 Semantic: ${semanticSim === null ? 'n/a' : semanticSim.toFixed(3)} | Lexical: ${lexicalSim.toFixed(3)} | Combined: ${combined.toFixed(3)} | Threshold: ${threshold} | ✅ Verified: ${isVerified ? 'YES' : 'NO'}`);
 
     return {
-      isVerified: combined >= threshold,
+      isVerified,
       similarity: combined,
       semanticSim,
       lexicalSim,
       threshold
     };
   } catch (error) {
-    console.error('Error verifying answer semantically:', error);
+    console.error('❌ Error verifying answer semantically:', error);
     throw error;
   }
 }
@@ -283,7 +343,7 @@ async function verifyAnswerSemantically(providedAnswer, correctAnswer, threshold
 async function findVerifiedMatches(newItem, existingItems, providedAnswer = null) {
   try {
     // Find semantic matches
-    const semanticMatches = await findSemanticMatches(newItem, existingItems, 0.8);
+    const semanticMatches = await findSemanticMatches(newItem, existingItems, 0.65);
     
     if (semanticMatches.length === 0) {
       return [];
@@ -330,7 +390,7 @@ async function findVerifiedMatches(newItem, existingItems, providedAnswer = null
       isVerifiedMatch: false
     }));
   } catch (error) {
-    console.error('Error finding verified matches:', error);
+    console.error('❌ Error finding verified matches:', error);
     throw error;
   }
 }
@@ -340,7 +400,7 @@ async function findVerifiedMatches(newItem, existingItems, providedAnswer = null
  */
 function clearEmbeddingCache() {
   embeddingCache.clear();
-  console.log('Embedding cache cleared');
+  console.log('🗑️ Embedding cache cleared');
 }
 
 /**
@@ -359,7 +419,7 @@ const DEFAULTS = {
   combinedThreshold: parseFloat(process.env.SEMANTIC_COMBINED_THRESHOLD || '0.7'),
   semanticWeight: parseFloat(process.env.SEMANTIC_WEIGHT || '0.75'),
   lexicalWeight: parseFloat(process.env.LEXICAL_WEIGHT || '0.25'),
-  answerVerificationThreshold: parseFloat(process.env.ANSWER_VERIFICATION_THRESHOLD || '0.8')
+  answerVerificationThreshold: parseFloat(process.env.ANSWER_VERIFICATION_THRESHOLD || '0.75') // Default 0.75 for leniency
 };
 
 module.exports = {
@@ -371,6 +431,6 @@ module.exports = {
   verifyAnswerSemantically,
   findVerifiedMatches,
   clearEmbeddingCache,
-  getCacheStats
-  , DEFAULTS
+  getCacheStats,
+  DEFAULTS
 };
