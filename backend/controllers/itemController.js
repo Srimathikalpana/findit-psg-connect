@@ -289,10 +289,16 @@ exports.getAllLostItems = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, category, search } = req.query;
     
-    let query = { status: 'active' };
+    let query = {};
     
-    if (status) query.status = status;
-    if (category) query.category = category;
+    // Only filter by status if it's provided and not 'all'
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    if (category && category !== 'all') {
+      query.category = category;
+    }
     if (search) {
       query.$or = [
         { itemName: { $regex: search, $options: 'i' } },
@@ -332,10 +338,16 @@ exports.getAllFoundItems = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, category, search } = req.query;
     
-    let query = { status: 'active' };
+    let query = {};
     
-    if (status) query.status = status;
-    if (category) query.category = category;
+    // Only filter by status if it's provided and not 'all'
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    if (category && category !== 'all') {
+      query.category = category;
+    }
     if (search) {
       query.$or = [
         { itemName: { $regex: search, $options: 'i' } },
@@ -547,6 +559,12 @@ exports.updateItem = async (req, res) => {
       item = await LostItem.findById(id);
     } else if (path.includes('/found-items/')) {
       item = await FoundItem.findById(id);
+    } else if (path.includes('/items/')) {
+      // Admin route - try both models
+      item = await LostItem.findById(id);
+      if (!item) {
+        item = await FoundItem.findById(id);
+      }
     } else {
       return res.status(400).json({ 
         success: false,
@@ -561,8 +579,12 @@ exports.updateItem = async (req, res) => {
       });
     }
 
-    // Check if user owns the item
-    if (item.user.toString() !== req.user._id.toString()) {
+    // Support both adminAuth (req.admin) and regular auth (req.user)
+    const isAdmin = req.admin?.role === 'admin' || req.user?.role === 'admin';
+    const userId = req.user?._id;
+
+    // Check if user owns the item or is admin
+    if (!isAdmin && (!userId || item.user.toString() !== userId.toString())) {
       return res.status(403).json({ 
         success: false,
         message: 'Not authorized to update this item' 
@@ -594,15 +616,21 @@ exports.deleteItem = async (req, res) => {
     const path = req.path;
 
     let item;
-    if (path.includes('/lost-items/')) {
+    // Check path to determine item type
+    if (path.includes('/lost-items/') || path.includes('/items/')) {
+      // Try lost item first, then found item (for admin routes)
       item = await LostItem.findById(id);
+      if (!item) {
+        item = await FoundItem.findById(id);
+      }
     } else if (path.includes('/found-items/')) {
       item = await FoundItem.findById(id);
     } else {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid item type' 
-      });
+      // Fallback: try both models (for admin routes that use generic /items/:id)
+      item = await LostItem.findById(id);
+      if (!item) {
+        item = await FoundItem.findById(id);
+      }
     }
 
     if (!item) {
@@ -612,8 +640,12 @@ exports.deleteItem = async (req, res) => {
       });
     }
 
+    // Support both adminAuth (req.admin) and regular auth (req.user)
+    const isAdmin = req.admin?.role === 'admin' || req.user?.role === 'admin';
+    const userId = req.user?._id;
+    
     // Check if user owns the item or is admin
-    if (item.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if (!isAdmin && (!userId || item.user.toString() !== userId.toString())) {
       return res.status(403).json({ 
         success: false,
         message: 'Not authorized to delete this item' 

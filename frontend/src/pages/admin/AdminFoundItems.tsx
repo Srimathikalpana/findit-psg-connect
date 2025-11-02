@@ -57,18 +57,31 @@ const AdminFoundItems = () => {
   const [items, setItems] = useState<FoundItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
-  const categories = ['Electronics', 'Clothing', 'Books', 'Accessories', 'Others'];
-  const statuses = ['active', 'claimed', 'expired'];
+  const categories = ['Electronics', 'Clothing', 'Accessories', 'Books', 'Stationery', 'Sports Equipment', 'Personal Items', 'Other'];
+  const statuses = ['active', 'claimed'];
 
   useEffect(() => {
     fetchItems();
   }, [currentPage, statusFilter, categoryFilter, searchTerm]);
+
+  const handleSearch = () => {
+    setSearchTerm(searchInput);
+    setCurrentPage(1); // Reset to first page when searching
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
 
   const fetchItems = async () => {
     try {
@@ -86,6 +99,7 @@ const AdminFoundItems = () => {
       if (response.success) {
         setItems(response.data);
         setTotalPages(response.totalPages);
+        setTotalItems(response.totalItems || 0);
       } else {
         setError('Failed to fetch found items');
       }
@@ -124,7 +138,6 @@ const AdminFoundItems = () => {
     const variants: { [key: string]: 'default' | 'secondary' | 'destructive' | 'outline' } = {
       active: 'default',
       claimed: 'secondary',
-      expired: 'destructive',
     };
     return (
       <Badge variant={variants[status] || 'outline'}>
@@ -166,14 +179,18 @@ const AdminFoundItems = () => {
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <div className="flex gap-2">
                 <Input
                   placeholder="Search items..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="flex-1"
                 />
+                <Button onClick={handleSearch} variant="default">
+                  <Search className="h-4 w-4 mr-2" />
+                  Search
+                </Button>
               </div>
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -209,7 +226,7 @@ const AdminFoundItems = () => {
       {/* Items Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Found Items ({items.length})</CardTitle>
+          <CardTitle>Found Items ({totalItems})</CardTitle>
           <CardDescription>
             A list of all found item reports in the system
           </CardDescription>

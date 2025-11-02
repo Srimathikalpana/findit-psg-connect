@@ -136,8 +136,11 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
-    // Check if user is trying to delete themselves
-    if (user._id.toString() === req.user._id.toString()) {
+    // Support both adminAuth (req.admin) and regular auth (req.user)
+    const adminEmail = req.admin?.email || (req.user?.role === 'admin' ? req.user.email : null);
+    
+    // Check if user is trying to delete themselves (only if req.user exists)
+    if (req.user && user._id.toString() === req.user._id.toString()) {
       return res.status(400).json({
         success: false,
         message: 'Cannot delete your own account'
@@ -151,7 +154,7 @@ exports.deleteUser = async (req, res) => {
       $or: [{ claimant: id }, { finder: id }] 
     });
 
-    await user.remove();
+    await User.findByIdAndDelete(id);
 
     res.json({
       success: true,

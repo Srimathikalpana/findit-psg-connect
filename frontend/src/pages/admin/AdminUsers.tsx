@@ -24,7 +24,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { getUsers, updateUserRole, deleteUser } from '@/services/adminApi';
+import { getUsers, getUserById, updateUserRole, deleteUser } from '@/services/adminApi';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { 
   Search, 
   MoreHorizontal, 
@@ -34,7 +41,8 @@ import {
   Trash2,
   Calendar,
   Mail,
-  User as UserIcon
+  User as UserIcon,
+  IdCard
 } from 'lucide-react';
 
 interface User {
@@ -53,16 +61,32 @@ const AdminUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   const roles = ['user', 'admin'];
 
   useEffect(() => {
     fetchUsers();
   }, [currentPage, roleFilter, searchTerm]);
+
+  const handleSearch = () => {
+    setSearchTerm(searchInput);
+    setCurrentPage(1); // Reset to first page when searching
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -79,6 +103,7 @@ const AdminUsers = () => {
       if (response.success) {
         setUsers(response.data);
         setTotalPages(response.totalPages);
+        setTotalItems(response.totalItems || 0);
       } else {
         setError('Failed to fetch users');
       }
@@ -110,6 +135,23 @@ const AdminUsers = () => {
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to delete user');
       }
+    }
+  };
+
+  const handleViewProfile = async (userId: string) => {
+    try {
+      setProfileLoading(true);
+      const response = await getUserById(userId);
+      if (response.success) {
+        setSelectedUser(response.data);
+        setProfileDialogOpen(true);
+      } else {
+        setError('Failed to fetch user profile');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to fetch user profile');
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -158,14 +200,18 @@ const AdminUsers = () => {
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <div className="flex gap-2">
                 <Input
                   placeholder="Search users..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="flex-1"
                 />
+                <Button onClick={handleSearch} variant="default">
+                  <Search className="h-4 w-4 mr-2" />
+                  Search
+                </Button>
               </div>
             </div>
             <Select value={roleFilter} onValueChange={setRoleFilter}>
@@ -188,7 +234,7 @@ const AdminUsers = () => {
       {/* Users Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Users ({users.length})</CardTitle>
+          <CardTitle>Users ({totalItems})</CardTitle>
           <CardDescription>
             A list of all registered users in the system
           </CardDescription>
@@ -246,7 +292,7 @@ const AdminUsers = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewProfile(user._id)}>
                             <Eye className="mr-2 h-4 w-4" />
                             View Profile
                           </DropdownMenuItem>
@@ -310,6 +356,86 @@ const AdminUsers = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* User Profile Dialog */}
+      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>User Profile</DialogTitle>
+            <DialogDescription>
+              View detailed information about the user
+            </DialogDescription>
+          </DialogHeader>
+          {profileLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : selectedUser ? (
+            <div className="space-y-6 py-4">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">Name</label>
+                  <div className="flex items-center gap-2">
+                    <UserIcon className="h-4 w-4 text-gray-400" />
+                    <p className="text-sm font-medium">{selectedUser.name}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">Email</label>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-gray-400" />
+                    <p className="text-sm font-medium">{selectedUser.email}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">Student ID</label>
+                  <div className="flex items-center gap-2">
+                    <IdCard className="h-4 w-4 text-gray-400" />
+                    <p className="text-sm font-mono font-medium">{selectedUser.studentId}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">Role</label>
+                  <div>{getRoleBadge(selectedUser.role)}</div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">Account Created</label>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                    <p className="text-sm">{formatDate(selectedUser.createdAt)}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">User ID</label>
+                  <p className="text-xs font-mono text-gray-600 break-all">{selectedUser._id}</p>
+                </div>
+              </div>
+              
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold mb-3">Account Information</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Account Status:</span>
+                    <Badge variant="default">Active</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Member Since:</span>
+                    <span>{new Date(selectedUser.createdAt).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              No user data available
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

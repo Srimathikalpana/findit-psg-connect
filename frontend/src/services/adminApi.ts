@@ -105,6 +105,12 @@ export const updateUserRole = async (userId: string, role: string) => {
   return response.data;
 };
 
+// Get user by ID
+export const getUserById = async (userId: string) => {
+  const response = await adminApi.get(`/admin/users/${userId}`);
+  return response.data;
+};
+
 // Delete user
 export const deleteUser = async (userId: string) => {
   const response = await adminApi.delete(`/admin/users/${userId}`);
