@@ -47,7 +47,9 @@ interface LostItem {
   }
   potentialMatches?: Array<{
     foundItem: FoundItem;
-    similarity: number;
+    similarity: number; // 0-1 scale
+    similarityPercent?: number; // 0-100 scale (preferred)
+    method?: string;
     locationMatch: boolean;
     timeValid: boolean;
   }>;
@@ -350,7 +352,7 @@ const Dashboard = () => {
         
         // Show success message with confirmation
         toast({ 
-          title: 'Answer verified successfully! ✅', 
+          title: 'Answer verified successfully!', 
           description: finderContactInfo ? "Here's the finder's contact information." : 'Verification passed. Items marked as claimed.' 
         })
         
@@ -457,11 +459,23 @@ const Dashboard = () => {
     [foundItems]
   )
 
-  // Memoize sorted matches
+  // Memoize sorted matches - descending order (highest to lowest), filter >70% only
   const sortedPotentialMatches = useMemo(() => {
     return (item: LostItem) => {
-      if (!item.potentialMatches) return []
-      return [...item.potentialMatches].sort((a, b) => b.similarity - a.similarity)
+      if (!item.potentialMatches || item.potentialMatches.length === 0) return []
+      
+      // Filter matches > 70% only
+      const filteredMatches = item.potentialMatches.filter((match: any) => {
+        const score = match.similarityPercent !== undefined ? match.similarityPercent : (match.similarity || 0) * 100
+        return score > 70 // Only show matches greater than 70%
+      })
+      
+      // Sort in descending order (highest to lowest) - reverse sorted order
+      return filteredMatches.sort((a: any, b: any) => {
+        const aScore = a.similarityPercent !== undefined ? a.similarityPercent : (a.similarity || 0) * 100
+        const bScore = b.similarityPercent !== undefined ? b.similarityPercent : (b.similarity || 0) * 100
+        return bScore - aScore // Descending: highest first
+      })
     }
   }, [])
 
@@ -684,7 +698,7 @@ const Dashboard = () => {
                         <h4 className="font-medium">Potential Matches</h4>
                         {sortedPotentialMatches(item).map(match => (
                           <div key={match.foundItem._id} className="mt-2 p-2 bg-muted rounded-lg">
-                            <p className="text-sm">Match Score: {(match.similarity * 100).toFixed(0)}%</p>
+                            <p className="text-sm font-medium">Match Score: {match.similarityPercent !== undefined ? match.similarityPercent : ((match.similarity || 0) * 100).toFixed(0)}%</p>
                             <p className="text-sm">Found at: {match.foundItem.placeFound}</p>
                             {match.foundItem.description && (
                               <p className="text-sm text-muted-foreground mt-1">Description: {match.foundItem.description}</p>

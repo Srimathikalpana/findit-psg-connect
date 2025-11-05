@@ -1,5 +1,8 @@
 const { findMatches, calculateItemSimilarity, isLocationNearby, isTimeValid } = require('../utils/itemMatcher');
 const { findVerifiedMatches, verifyAnswerSemantically } = require('../utils/semanticMatch');
+const { uploadImage } = require('../utils/cloudinary');
+const { compareTextAndImage } = require('./compareController');
+const { notifyPotentialMatch } = require('../utils/emailService');
 const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
@@ -13,7 +16,7 @@ exports.createLostItem = async (req, res) => {
       description,
       placeLost,
       dateLost,
-      imageUrl,
+      imageUrl, // Can be Cloudinary URL from frontend or base64 string
       category, 
       color, 
       brand, 
@@ -21,6 +24,23 @@ exports.createLostItem = async (req, res) => {
       isUrgent,
       contactInfo 
     } = req.body;
+
+    let finalImageUrl = imageUrl;
+
+    // If imageUrl is a base64 string, upload it to Cloudinary
+    if (imageUrl && imageUrl.startsWith('data:image/')) {
+      try {
+        const uploadResult = await uploadImage(imageUrl, {
+          resource_type: 'auto'
+        });
+        finalImageUrl = uploadResult.secure_url;
+        console.log('✅ Image uploaded to Cloudinary for lost item');
+      } catch (uploadError) {
+        console.error('❌ Error uploading image to Cloudinary:', uploadError);
+        // Continue without image if upload fails
+        finalImageUrl = null;
+      }
+    }
 
     if (!itemName || !description || !placeLost || !dateLost || !category) {
       return res.status(400).json({ 
@@ -34,7 +54,7 @@ exports.createLostItem = async (req, res) => {
       description,
       placeLost,
       dateLost: new Date(dateLost),
-      imageUrl,
+      imageUrl: finalImageUrl,
       category,
       color,
       brand,
@@ -45,72 +65,100 @@ exports.createLostItem = async (req, res) => {
       type: 'lost'
     });
 
-    // Save the lost item first (may be used by matching services)
+    // Save the lost item first
     await lostItem.save();
 
-    // Find potential matches in found items
-    const foundItems = await FoundItem.find({ status: 'active' });
-
-    // Attempt semantic matching (the semanticMatch utilities will gracefully fallback to lexical-only matching
-    // when embeddings are unavailable or disabled). This avoids skipping matching entirely when OpenAI quota is exhausted.
-    let semanticMatches = [];
+    // Try to find matches, but don't fail the request if matching fails
+    let matchesWithDetails = [];
+    let matchCount = 0;
+    
     try {
-      semanticMatches = await findVerifiedMatches(lostItem, foundItems);
-    } catch (semErr) {
-      console.error('Semantic matching failed, falling back to traditional matching:', semErr);
-      semanticMatches = [];
-    }
-
-    // Also get traditional matches for comparison
-    const traditionalMatches = await findMatches(lostItem, foundItems);
-    
-    // Combine and deduplicate matches
-    const allMatches = [...semanticMatches];
-    traditionalMatches.forEach(traditionalMatch => {
-      const exists = allMatches.some(semanticMatch => 
-        semanticMatch.itemId.toString() === traditionalMatch.itemId.toString()
-      );
-      if (!exists) {
-        allMatches.push({
-          ...traditionalMatch,
-          verification: null,
-          isVerifiedMatch: false,
-          matchType: 'traditional'
-        });
-      }
-    });
-    
-    // Enrich matches with found item details (description, placeFound) where possible
-    for (const match of allMatches) {
-      try {
-        const found = foundItems.find(fi => String(fi._id) === String(match.itemId));
-        if (found) {
-          match.foundDescription = found.description;
-          match.foundAt = found.placeFound;
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // Save matches reference in lost item
-    lostItem.potentialMatches = allMatches.map(match => match.itemId);
-    await lostItem.save();
-
-    // Add reference to matched found items
-    for (const match of allMatches) {
-      await FoundItem.findByIdAndUpdate(match.itemId, {
-        $addToSet: { matchedWith: lostItem._id }
+      // Efficient matching: Use itemMatcher with Xenova (itemName + description only) + location/time validation
+      // IMPORTANT: When submitting lost item, ONLY search FoundItem database (not LostItem)
+      console.log(`[createLostItem] Finding matches for: "${lostItem.itemName}"`);
+      
+      // Find potential matches in FOUND ITEMS database ONLY (only active items, exclude own items and claimed items)
+      const foundItems = await FoundItem.find({ 
+        status: 'active', // Only active found items (claimed items are excluded automatically)
+        user: { $ne: req.user._id } // Exclude own items
       });
+      
+      if (foundItems.length > 0) {
+        console.log(`[createLostItem] Using itemMatcher to compare against ${foundItems.length} found items`);
+        
+        // Use itemMatcher.findMatches() which:
+        // 1. Uses Xenova to compare itemName + description only
+        // 2. Checks location match (isLocationNearby)
+        // 3. Checks time validity (isTimeValid)
+        // 4. Returns only matches that satisfy ALL conditions
+        const matches = await findMatches(lostItem, foundItems, 0.7); // 70% minimum similarity
+        
+        // Store matches in database (one-time calculation, reusable for all future retrievals)
+        const matchRefsToStore = matches.map(match => ({
+          foundItem: match.itemId,
+          similarity: match.similarity, // 0-1 scale
+          similarityPercent: match.similarityPercent, // 0-100 scale
+          method: 'itemName+description-xenova', // Method indicator
+          locationMatch: match.locationMatch,
+          timeValid: match.timeValid,
+          matchedAt: new Date()
+        }));
+        
+        lostItem.potentialMatches = matches.map(match => match.itemId);
+        lostItem.matchRefs = matchRefsToStore;
+        await lostItem.save();
+        
+        console.log(`[createLostItem] Found ${matches.length} matches (≥70% similarity, location & time validated)`);
+        
+        matchCount = matches.length;
+
+        // Format matches with found item details for response (handle errors gracefully)
+        matchesWithDetails = await Promise.all(
+          matches.slice(0, 10).map(async (match) => {
+            try {
+              const foundItemDoc = await FoundItem.findById(match.itemId)
+                .populate('user', 'name email studentId');
+              
+              if (!foundItemDoc) {
+                console.warn(`[createLostItem] Found item ${match.itemId} not found`);
+                return null;
+              }
+              
+              return {
+                foundItem: foundItemDoc,
+                itemId: match.itemId,
+                similarity: match.similarity,
+                similarityPercent: match.similarityPercent,
+                method: 'itemName+description-xenova',
+                locationMatch: match.locationMatch,
+                timeValid: match.timeValid
+              };
+            } catch (matchError) {
+              console.error(`[createLostItem] Error formatting match ${match.itemId}:`, matchError.message);
+              return null; // Return null for failed matches
+            }
+          })
+        );
+        
+        // Filter out null values from failed match lookups
+        matchesWithDetails = matchesWithDetails.filter(m => m !== null);
+      } else {
+        console.log(`[createLostItem] No found items to match against`);
+      }
+    } catch (matchingError) {
+      // Log the error but don't fail the request - item was already saved successfully
+      console.error(`[createLostItem] Error during matching (item saved successfully):`, matchingError);
+      console.error(`[createLostItem] Error details:`, matchingError.stack);
+      // Continue with empty matches - item was saved successfully
     }
 
+    // Always return success - item was saved successfully
     res.status(201).json({ 
       success: true,
       message: 'Lost item reported successfully', 
       data: lostItem,
-      matches: allMatches,
-      semanticMatches: semanticMatches,
-      traditionalMatches: traditionalMatches
+      matches: matchesWithDetails, // Return matches (empty if matching failed)
+      matchCount: matchCount
     });
   } catch (error) {
     console.error('Create lost item error:', error);
@@ -130,7 +178,7 @@ exports.createFoundItem = async (req, res) => {
       description,
       placeFound,
       dateFound,
-      imageUrl,
+      imageUrl, // Can be Cloudinary URL from frontend or base64 string
       category, 
       color, 
       brand, 
@@ -140,6 +188,23 @@ exports.createFoundItem = async (req, res) => {
       verificationQuestion,
       correctAnswer
     } = req.body;
+
+    let finalImageUrl = imageUrl;
+
+    // If imageUrl is a base64 string, upload it to Cloudinary
+    if (imageUrl && imageUrl.startsWith('data:image/')) {
+      try {
+        const uploadResult = await uploadImage(imageUrl, {
+          resource_type: 'auto'
+        });
+        finalImageUrl = uploadResult.secure_url;
+        console.log('✅ Image uploaded to Cloudinary for found item');
+      } catch (uploadError) {
+        console.error('❌ Error uploading image to Cloudinary:', uploadError);
+        // Continue without image if upload fails
+        finalImageUrl = null;
+      }
+    }
 
     if (!itemName || !description || !placeFound || !dateFound || !category || !verificationQuestion || !correctAnswer) {
       return res.status(400).json({ 
@@ -153,7 +218,7 @@ exports.createFoundItem = async (req, res) => {
       description,
       placeFound,
       dateFound: new Date(dateFound),
-      imageUrl,
+      imageUrl: finalImageUrl,
       category,
       color,
       brand,
@@ -165,114 +230,178 @@ exports.createFoundItem = async (req, res) => {
       user: req.user._id
     });
 
-    // Save the found item first to generate embeddings
+    // Save the found item first
     await foundItem.save();
 
-    // Find potential matches using semantic matching
-    // Load active lost items (do not require embeddings — semanticMatch will fall back to lexical similarity if needed)
-    const lostItems = await LostItem.find({ status: 'active' });
-
-    // Use semantic matching (with lexical fallback) to find potential matches
-    const semanticMatches = await findVerifiedMatches(foundItem, lostItems);
+    // Try to find matches, but don't fail the request if matching fails
+    let accurateMatches = [];
+    let matchCount = 0;
     
-    // Also get traditional matches for comparison
-    const traditionalMatches = await findMatches(foundItem, lostItems);
-    
-    // Combine and deduplicate matches
-    const allMatches = semanticMatches.map(match => ({
-      ...match,
-      lostItem: match.item,
-      score: match.similarity,
-      matchType: 'semantic'
-    }));
-    
-    traditionalMatches.forEach(traditionalMatch => {
-      try {
-        // traditionalMatch may have different shapes depending on source (itemId, lostItem, etc.)
-        const traditionalLostId = (
-          (traditionalMatch.lostItem && traditionalMatch.lostItem._id) ||
-          traditionalMatch.itemId ||
-          traditionalMatch.lostItemId ||
-          null
-        );
-
-        if (!traditionalLostId) return; // nothing we can compare
-
-        const traditionalLostIdStr = String(traditionalLostId);
-
-        const exists = allMatches.some(semanticMatch => {
-          return semanticMatch.lostItem && semanticMatch.lostItem._id && String(semanticMatch.lostItem._id) === traditionalLostIdStr;
-        });
-
-        if (!exists) {
-          // Try to attach the full lostItem object if possible
-          const lostObj = lostItems.find(li => String(li._id) === traditionalLostIdStr) || null;
-          allMatches.push({
-            lostItem: lostObj,
-            itemId: traditionalLostId,
-            similarity: traditionalMatch.similarity || traditionalMatch.score || 0,
-            verification: null,
-            isVerifiedMatch: false,
-            matchType: 'traditional'
-          });
-        }
-      } catch (e) {
-        console.warn('Skipping a traditional match due to unexpected shape:', e && e.message);
-      }
-    });
-
-    // For each matched lost item, add this found item to its potentialMatches
-    if (Array.isArray(allMatches) && allMatches.length > 0) {
-      const bulk = LostItem.collection.initializeUnorderedBulkOp();
-      allMatches.forEach(m => {
-        const id = m?.lostItem?._id || m?.itemId || m?.lostItemId || null;
-        if (id) {
+    try {
+      // Efficient matching: Use itemMatcher with Xenova (itemName + description only) + location/time validation
+      // IMPORTANT: When submitting found item, ONLY search LostItem database (not FoundItem)
+      console.log(`[createFoundItem] Finding matches for: "${foundItem.itemName}"`);
+      
+      // Find potential matches in LOST ITEMS database ONLY (only active items, exclude own items and claimed items)
+      const lostItems = await LostItem.find({ 
+        status: 'active', // Only active lost items (claimed items are excluded automatically)
+        user: { $ne: req.user._id } // Exclude own items
+      });
+      
+      if (lostItems.length > 0) {
+        console.log(`[createFoundItem] Using itemMatcher to compare against ${lostItems.length} lost items`);
+        
+        // Use itemMatcher.findMatches() which:
+        // 1. Uses Xenova to compare itemName + description only
+        // 2. Checks location match (isLocationNearby)
+        // 3. Checks time validity (isTimeValid)
+        // 4. Returns only matches that satisfy ALL conditions
+        const matches = await findMatches(foundItem, lostItems, 0.7); // 70% minimum similarity
+        
+        // Store matches in found item's matchRefs (one-time calculation)
+        const matchRefsToStore = matches.map(match => ({
+          lostItem: match.itemId,
+          similarity: match.similarity, // 0-1 scale
+          similarityPercent: match.similarityPercent, // 0-100 scale
+          method: 'itemName+description-xenova', // Method indicator
+          locationMatch: match.locationMatch,
+          timeValid: match.timeValid,
+          matchedAt: new Date()
+        }));
+        
+        foundItem.matchRefs = matchRefsToStore;
+        await foundItem.save();
+        
+        // Update lost items' matchRefs bidirectionally (bulk update for efficiency)
+        if (matches.length > 0) {
           try {
-            bulk.find({ _id: id, status: 'active' }).updateOne({
+      const bulk = LostItem.collection.initializeUnorderedBulkOp();
+            matches.forEach(match => {
+              try {
+                bulk.find({ _id: match.itemId, status: 'active' }).updateOne({
+                  $push: {
+                    matchRefs: {
+                      foundItem: foundItem._id,
+                      similarity: match.similarity,
+                      similarityPercent: match.similarityPercent,
+                      method: 'itemName+description-xenova',
+                      locationMatch: match.locationMatch,
+                      timeValid: match.timeValid,
+                      matchedAt: new Date()
+                    }
+                  },
               $addToSet: { potentialMatches: foundItem._id }
             });
           } catch (e) {
-            console.warn('Failed to queue bulk update for lostItem id', id, e && e.message);
-          }
+                console.warn(`Failed to queue update for lostItem ${match.itemId}:`, e.message);
         }
       });
       if (bulk.length > 0) {
         await bulk.execute();
+            }
+          } catch (bulkError) {
+            console.error(`[createFoundItem] Error in bulk update:`, bulkError.message);
+            // Continue - matches are already stored in foundItem
+          }
+        }
+        
+        matchCount = matches.length;
+        
+        // Format matches for response (include lostItem details, handle errors gracefully)
+        accurateMatches = await Promise.all(
+          matches.map(async (match) => {
+            try {
+              const lostItemDoc = await LostItem.findById(match.itemId)
+                .populate('user', 'name email studentId');
+              
+              if (!lostItemDoc) {
+                console.warn(`[createFoundItem] Lost item ${match.itemId} not found`);
+                return null;
+              }
+              
+              return {
+                lostItem: lostItemDoc,
+                itemId: match.itemId,
+                similarity: match.similarity,
+                similarityPercent: match.similarityPercent,
+                method: 'itemName+description-xenova',
+                locationMatch: match.locationMatch,
+                timeValid: match.timeValid
+              };
+            } catch (matchError) {
+              console.error(`[createFoundItem] Error formatting match ${match.itemId}:`, matchError.message);
+              return null; // Return null for failed matches
+            }
+          })
+        );
+        
+        // Filter out null values from failed match lookups
+        accurateMatches = accurateMatches.filter(m => m !== null);
+        
+        console.log(`[createFoundItem] Found ${accurateMatches.length} matches (≥70% similarity, location & time validated)`);
+      } else {
+        console.log(`[createFoundItem] No lost items to match against`);
       }
+    } catch (matchingError) {
+      // Log the error but don't fail the request - item was already saved successfully
+      console.error(`[createFoundItem] Error during matching (item saved successfully):`, matchingError);
+      console.error(`[createFoundItem] Error details:`, matchingError.stack);
+      // Continue with empty matches - item was saved successfully
+    }
 
-      // Notify lost item owners about potential match (best-effort)
-      try {
-        for (const m of allMatches) {
-          if (m.lostItem && m.lostItem.user && m.lostItem.user.email) {
-            const lostUser = { name: m.lostItem.user.name, email: m.lostItem.user.email };
-            const foundSummary = {
+    // Notify lost item owners about potential match (best-effort, don't block response)
+    if (accurateMatches.length > 0 && notifyPotentialMatch && req.user) {
+      // Capture values for async notification
+      const reporterInfo = {
+        name: req.user.name || 'Someone',
+        email: req.user.email
+      };
+      const foundItemInfo = {
               itemName: foundItem.itemName,
               placeFound: foundItem.placeFound,
               dateFound: foundItem.dateFound,
-              reporterName: req.user?.name,
-              reporterEmail: req.user?.email,
-              id: foundItem._id,
-              lostItemId: m.lostItem._id
-            };
-            // fire-and-forget but await to log failures if any
+        id: foundItem._id.toString()
+      };
+      
+      // Run notifications in background without blocking the response
+      setImmediate(async () => {
+        try {
+          for (const m of accurateMatches) {
+            try {
+              if (m && m.lostItem && m.lostItem.user && m.lostItem.user.email) {
+                const lostUser = { 
+                  name: m.lostItem.user.name || 'User', 
+                  email: m.lostItem.user.email 
+                };
+                const foundSummary = {
+                  ...foundItemInfo,
+                  reporterName: reporterInfo.name,
+                  reporterEmail: reporterInfo.email,
+                  lostItemId: m.lostItem._id.toString()
+                };
+                // fire-and-forget notification
             const r = await notifyPotentialMatch(lostUser, foundSummary, m.lostItem.itemName);
             if (r && r.sent === false) {
               console.error('Failed to notify lost user about potential match:', r.error);
             }
+              }
+            } catch (notifyErr) {
+              console.error('Error notifying user about match:', notifyErr.message);
           }
         }
       } catch (notifyErr) {
-        console.error('Error notifying lost item owners of potential matches:', notifyErr);
+          console.error('Error in notification loop:', notifyErr);
       }
+      });
     }
 
+    // Always return success - item was saved successfully
     res.status(201).json({ 
       success: true,
       message: 'Found item reported successfully', 
       data: foundItem,
-      matches: allMatches.slice(0, 5), // Return top 5 matches
-      semanticMatches: semanticMatches,
-      traditionalMatches: traditionalMatches
+      matches: accurateMatches.slice(0, 10), // Return matches (empty if matching failed)
+      matchCount: matchCount
     });
   } catch (error) {
     console.error('Create found item error:', error);
@@ -433,14 +562,15 @@ exports.getUserItems = async (req, res) => {
     if (!type || type === 'lost') {
       lostItems = await LostItem.find({ user: userId })
         .sort({ createdAt: -1 })
-        // populate potentialMatches with useful fields and populate the reporter user
+        // Populate matchRefs with foundItem details (these contain stored similarity scores)
+        // No need to populate potentialMatches separately - we'll use matchRefs
         .populate({ 
-          path: 'potentialMatches', 
+          path: 'matchRefs.foundItem', 
           match: { status: 'active' },
-          select: 'itemName description placeFound dateFound category status user verificationQuestion contactInfo',
+          select: 'itemName description placeFound dateFound category status user verificationQuestion contactInfo imageUrl',
+          strictPopulate: false, 
           populate: { path: 'user', select: 'name email studentId' }
-        })
-        .populate({ path: 'matchRefs.foundItem', select: 'itemName description placeFound dateFound category status user contactInfo verificationQuestion', strictPopulate: false, populate: { path: 'user', select: 'name email studentId' } });
+        });
     }
 
     if (!type || type === 'found') {
@@ -484,17 +614,30 @@ exports.getUserItems = async (req, res) => {
 
       const obj = li.toObject();
 
-      // If potentialMatches are populated, convert them to objects with similarity and foundItem
-      if (Array.isArray(li.potentialMatches) && li.potentialMatches.length > 0) {
+      // Use stored matchRefs (calculated at creation time) - no recalculation needed
+      // Only filter by >70% threshold using stored similarity scores
+      const MIN_SIMILARITY_USERITEMS = 70; // 70% minimum in 0-100 scale (must be > 70%)
         const normalized = [];
-        for (const pm of li.potentialMatches) {
+      
+      // Use stored matchRefs ONLY (no recalculation - data already calculated at creation time)
+      // This is efficient - just filter by threshold and return stored data
+      if (li.matchRefs && li.matchRefs.length > 0) {
+        for (const matchRef of li.matchRefs) {
           try {
-            // pm may be an ObjectId or a populated document
-            const foundDoc = (typeof pm === 'object' && pm !== null) ? pm : await FoundItem.findById(pm).populate('user', 'name email studentId');
-            if (!foundDoc) continue;
-            const similarity = await calculateItemSimilarity(li, foundDoc);
+            // Filter by stored similarity score (>70%) - no comparison needed
+            if (matchRef.similarityPercent && matchRef.similarityPercent > MIN_SIMILARITY_USERITEMS) {
+              const foundDoc = matchRef.foundItem;
+              
+              // Check if foundItem is populated, if not skip (will be populated by query)
+              if (!foundDoc || (foundDoc && foundDoc.status !== 'active')) continue;
+              
+              // Format match to include all necessary fields for dashboard display
             normalized.push({
-              similarity,
+                similarity: matchRef.similarity, // 0-1 scale (stored)
+                similarityPercent: matchRef.similarityPercent, // 0-100 scale (stored)
+                method: matchRef.method || 'itemName+description-xenova', // Method used (stored)
+                locationMatch: matchRef.locationMatch !== undefined ? matchRef.locationMatch : true, // Location match status
+                timeValid: matchRef.timeValid !== undefined ? matchRef.timeValid : true, // Time validation status
               foundItem: {
                 _id: foundDoc._id,
                 itemName: foundDoc.itemName,
@@ -503,15 +646,29 @@ exports.getUserItems = async (req, res) => {
                 dateFound: foundDoc.dateFound,
                 status: foundDoc.status,
                 verificationQuestion: foundDoc.verificationQuestion,
-                user: foundDoc.user
-              }
-            });
+                  imageUrl: foundDoc.imageUrl,
+                  user: foundDoc.user,
+                  category: foundDoc.category,
+                  color: foundDoc.color,
+                  brand: foundDoc.brand
+                }
+              });
+            }
           } catch (e) {
-            console.warn('Error normalizing potential match for lost item', li._id, e && e.message);
+            console.warn('Error processing matchRef for lost item', li._id, e && e.message);
           }
         }
-        obj.potentialMatches = normalized;
       }
+      // Note: We don't use potentialMatches fallback anymore - only matchRefs are used
+      // This ensures we never recalculate - only use stored scores
+      
+      // Sort by similarity in descending order (highest to lowest) - reverse sorted order
+      normalized.sort((a, b) => {
+        const aScore = a.similarityPercent || 0;
+        const bScore = b.similarityPercent || 0;
+        return bScore - aScore; // Descending: highest first
+      });
+      obj.potentialMatches = normalized;
 
       serializeLost.push({ ...obj, claimedCounterpart });
     }
@@ -733,10 +890,10 @@ exports.searchItems = async (req, res) => {
 };
 
 // Add endpoint to get matches for a lost item
+// Efficient: Uses stored matchRefs only - no recalculation
 exports.getLostItemMatches = async (req, res) => {
   try {
-    const lostItem = await LostItem.findById(req.params.id)
-      .populate('potentialMatches');
+    const lostItem = await LostItem.findById(req.params.id);
     
     if (!lostItem) {
       return res.status(404).json({
@@ -745,20 +902,47 @@ exports.getLostItemMatches = async (req, res) => {
       });
     }
 
-    // Get full match details
-    const matches = await Promise.all(
-      lostItem.potentialMatches.map(async (matchId) => {
-        const foundItem = await FoundItem.findById(matchId)
-          .populate('user', 'name email');
-        const similarity = await calculateItemSimilarity(lostItem, foundItem);
-        return {
+    // Use stored matchRefs ONLY (calculated once at creation time)
+    // No database searches, no comparisons - just filter stored scores
+    const MIN_SIMILARITY_MATCHES = 70; // 70% minimum in 0-100 scale (must be > 70%)
+    const matches = [];
+    
+    // Populate matchRefs with foundItem details (efficient single query)
+    await lostItem.populate({
+      path: 'matchRefs.foundItem',
+      match: { status: 'active' }, // Only active items
+      select: 'itemName description placeFound dateFound category status user verificationQuestion contactInfo imageUrl',
+      populate: { path: 'user', select: 'name email studentId' }
+    });
+    
+    // Use stored similarity scores from matchRefs (no recalculation)
+    for (const matchRef of lostItem.matchRefs || []) {
+      try {
+        const foundItem = matchRef.foundItem;
+        if (!foundItem) continue; // Skip if populate didn't return item (filtered by status)
+        
+        // Filter by stored similarity score (>70%)
+        if (matchRef.similarityPercent && matchRef.similarityPercent > MIN_SIMILARITY_MATCHES) {
+          matches.push({
           foundItem,
-          similarity,
+            similarity: matchRef.similarity, // 0-1 scale (stored at creation)
+            similarityPercent: matchRef.similarityPercent, // 0-100 scale (stored at creation)
+            method: matchRef.method || 'text-only', // Method used (stored at creation)
           locationMatch: isLocationNearby(lostItem.placeLost, foundItem.placeFound),
           timeValid: isTimeValid(lostItem.dateLost, foundItem.dateFound)
-        };
-      })
-    );
+          });
+        }
+      } catch (e) {
+        console.warn('Error processing stored match:', e.message);
+      }
+    }
+    
+    // Sort by similarity in descending order (highest to lowest) - reverse sorted order
+    matches.sort((a, b) => {
+      const aScore = a.similarityPercent || 0;
+      const bScore = b.similarityPercent || 0;
+      return bScore - aScore; // Descending: highest first
+    });
 
     res.json({
       success: true,
@@ -775,6 +959,7 @@ exports.getLostItemMatches = async (req, res) => {
 };
 
 // Add endpoint to get matches for a found item
+// Efficient: Uses stored matchRefs only - no recalculation
 exports.getFoundItemMatches = async (req, res) => {
   try {
     const foundItem = await FoundItem.findById(req.params.id);
@@ -785,45 +970,56 @@ exports.getFoundItemMatches = async (req, res) => {
       });
     }
 
-    // Find potential matches from lost items
-    const lostItems = await LostItem.find({ status: 'active', user: { $ne: req.user._id } });
-
+    // Use stored matchRefs ONLY (calculated once at creation time)
+    // No database searches, no comparisons - just filter stored scores
+    const MIN_SIMILARITY_FOUND_MATCHES = 70; // 70% minimum in 0-100 scale
     const matches = [];
-    lostItems.forEach(lostItem => {
-      const nameSimilarity = stringSimilarity.compareTwoStrings(
-        foundItem.itemName.toLowerCase(),
-        lostItem.itemName.toLowerCase()
-      );
-
-      const descriptionSimilarity = stringSimilarity.compareTwoStrings(
-        foundItem.description.toLowerCase(),
-        lostItem.description.toLowerCase()
-      );
-
-      const locationSimilarity = stringSimilarity.compareTwoStrings(
-        foundItem.placeFound.toLowerCase(),
-        lostItem.placeLost.toLowerCase()
-      );
-
-      const overallScore = (nameSimilarity * 0.5) + (descriptionSimilarity * 0.3) + (locationSimilarity * 0.2);
-
-      if (overallScore > 0.6) {
+    
+    // Populate matchRefs with lostItem details (efficient single query)
+    await foundItem.populate({
+      path: 'matchRefs.lostItem',
+      match: { status: 'active' }, // Only active items
+      select: 'itemName description placeLost dateLost category status user contactInfo imageUrl',
+      populate: { path: 'user', select: 'name email studentId' }
+    });
+    
+    // Use stored similarity scores from matchRefs (no recalculation)
+    for (const matchRef of foundItem.matchRefs || []) {
+      try {
+        const lostItem = matchRef.lostItem;
+        if (!lostItem) continue; // Skip if populate didn't return item (filtered by status)
+        
+        // Skip if same user (don't show own items)
+        if (lostItem.user && lostItem.user._id.toString() === req.user._id.toString()) continue;
+        
+        // Filter by stored similarity score (≥70%)
+        if (matchRef.similarityPercent && matchRef.similarityPercent >= MIN_SIMILARITY_FOUND_MATCHES) {
         matches.push({
           lostItem: lostItem.toObject(),
-          matchScore: overallScore
-        });
+            similarity: matchRef.similarity, // 0-1 scale (stored at creation)
+            similarityPercent: matchRef.similarityPercent, // 0-100 scale (stored at creation)
+            matchScore: matchRef.similarity, // Alias for compatibility
+            method: matchRef.method || 'text-only' // Method used (stored at creation)
+          });
+        }
+      } catch (e) {
+        console.warn('Error processing stored match:', e.message);
       }
-    });
+    }
+    
+    // Sort by similarity (descending) - using stored scores
+    matches.sort((a, b) => (b.similarityPercent || 0) - (a.similarityPercent || 0));
 
     res.json({
       success: true,
-      matches: matches.sort((a, b) => b.matchScore - a.matchScore)
+      matches: matches
     });
   } catch (error) {
     console.error('Error getting found item matches:', error);
     res.status(500).json({
       success: false,
-      message: 'Error finding matches'
+      message: 'Error finding matches',
+      error: error.message
     });
   }
 };

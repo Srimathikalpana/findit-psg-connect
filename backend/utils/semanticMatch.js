@@ -209,7 +209,7 @@ async function findSemanticMatches(newItem, existingItems, threshold = 0.8) {
 
     const matches = [];
 
-    // Use provided threshold or environment override (SEMANTIC_COMBINED_THRESHOLD), default lowered to 0.7 for looser matching
+    // Use provided threshold or environment override (SEMANTIC_COMBINED_THRESHOLD), default 0.7 (70%) minimum
     const combinedThreshold = parseFloat(process.env.SEMANTIC_COMBINED_THRESHOLD || String(threshold || 0.7));
 
     for (const existingItem of existingItems) {
@@ -342,8 +342,8 @@ async function verifyAnswerSemantically(providedAnswer, correctAnswer, threshold
  */
 async function findVerifiedMatches(newItem, existingItems, providedAnswer = null) {
   try {
-    // Find semantic matches
-    const semanticMatches = await findSemanticMatches(newItem, existingItems, 0.65);
+    // Find semantic matches with 70% threshold (0.7)
+    const semanticMatches = await findSemanticMatches(newItem, existingItems, 0.7);
     
     if (semanticMatches.length === 0) {
       return [];

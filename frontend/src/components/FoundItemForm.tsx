@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Eye, MapPin, Calendar, Package, CheckCircle2, Loader2 } from "lucide-react"
+import { Eye, MapPin, Calendar, Package, CheckCircle2, Loader2, Image as ImageIcon, X } from "lucide-react"
 
 const locations = [
   "Library",
@@ -53,6 +53,8 @@ export const FoundItemForm = () => {
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success'>('idle')
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -73,6 +75,24 @@ export const FoundItemForm = () => {
         return
       }
 
+      // Convert image to base64 if selected
+      let imageUrl = null;
+      if (imageFile) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error('Failed to convert image to base64'));
+            }
+          };
+          reader.onerror = reject;
+        });
+        reader.readAsDataURL(imageFile);
+        imageUrl = await base64Promise;
+      }
+
       const response = await axios.post(
         'http://localhost:8080/api/found-items',
         {
@@ -86,7 +106,8 @@ export const FoundItemForm = () => {
           storageLocation: formData.storageLocation,
           contactInfo: { phone: formData.contactPhone },
           verificationQuestion: formData.verificationQuestion,
-          correctAnswer: formData.correctAnswer
+          correctAnswer: formData.correctAnswer,
+          imageUrl: imageUrl
         },
         {
           headers: {
@@ -117,7 +138,7 @@ export const FoundItemForm = () => {
         // Show success message
         setSubmitStatus('success')
         toast({
-          title: "Your report has been submitted successfully! ✅",
+          title: "Your report has been submitted successfully! ",
           description: "Redirecting to dashboard...",
         })
 
@@ -143,6 +164,8 @@ export const FoundItemForm = () => {
           correctAnswer: "",
           contactPhone: ""
         })
+        setImagePreview(null)
+        setImageFile(null)
         
         // Clear cache flag to force refresh when dashboard loads
         sessionStorage.setItem('dashboard_needs_refresh', 'true')
@@ -305,6 +328,75 @@ export const FoundItemForm = () => {
               onChange={(e) => setFormData({...formData, contactPhone: e.target.value})}
             />
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="image" className="flex items-center gap-2">
+              <ImageIcon className="h-4 w-4" />
+              Item Image (Optional)
+            </Label>
+            {imagePreview ? (
+              <div className="relative">
+                <img 
+                  src={imagePreview} 
+                  alt="Preview" 
+                  className="w-full h-48 object-cover rounded-md border"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={() => {
+                    setImagePreview(null);
+                    setImageFile(null);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center w-full">
+                <label
+                  htmlFor="image"
+                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <ImageIcon className="w-8 h-8 mb-2 text-gray-400" />
+                    <p className="mb-2 text-sm text-gray-500">
+                      <span className="font-semibold">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-gray-500">PNG, JPG, GIF (MAX. 5MB)</p>
+                  </div>
+                  <Input
+                    id="image"
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 5 * 1024 * 1024) {
+                          toast({
+                            title: "File too large",
+                            description: "Image must be less than 5MB",
+                            variant: "destructive"
+                          });
+                          return;
+                        }
+                        setImageFile(file);
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setImagePreview(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-6 border-t pt-6">
             <h3 className="font-medium text-lg">Verification Details</h3>
             <div className="space-y-2">

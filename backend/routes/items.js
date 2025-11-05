@@ -38,4 +38,9 @@ router.get('/lost-items/:id/matches', auth, getLostItemMatches);
 // Semantic verification endpoint
 router.post('/verify-answer', auth, verifyAnswerSemantically);
 
+// Cleanup endpoints (for cleaning up low-quality matches)
+const { cleanupLowQualityMatches, cleanupItemMatches } = require('../controllers/cleanupController');
+router.post('/cleanup-matches', auth, cleanupLowQualityMatches);
+router.post('/lost-items/:itemId/cleanup-matches', auth, cleanupItemMatches);
+
 module.exports = router;

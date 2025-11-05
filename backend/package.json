@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "cleanup-matches": "node scripts/cleanup-matches.js"
   },
   "keywords": [
     "lost-found",
@@ -22,6 +23,7 @@
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
     "bcrypt": "^6.0.0",
+    "cloudinary": "^1.41.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^4.18.2",
@@ -29,8 +31,9 @@
     "mongodb": "^6.18.0",
     "mongoose": "^8.17.2",
     "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "node-fetch": "^2.7.0",
     "nodemailer": "^6.10.1",
-    "openai": "^4.104.0",
     "string-similarity": "^4.0.4"
   },
   "devDependencies": {

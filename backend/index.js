@@ -10,6 +10,7 @@ const itemsRoutes = require('./routes/items');
 const claimsRoutes = require('./routes/claims');
 const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
+const compareRoutes = require('./routes/compareRoutes');
 
 const app = express();
 
@@ -45,6 +46,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', itemsRoutes);
 app.use('/api', claimsRoutes);
 app.use('/api', usersRoutes);
+app.use('/api', compareRoutes);
 app.use('/admin', adminRoutes); 
 
 // Health check endpoint

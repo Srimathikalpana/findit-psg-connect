@@ -7,11 +7,15 @@ const foundItemSchema = new mongoose.Schema({
   dateFound: { type: Date, required: true },
   handedOverTo: { type: String },
   storageLocation: { type: String },
-  // Cross-references to matched lost items with scores
+  // Cross-references to matched lost items with scores (stored at creation time)
   matchRefs: [
     {
       lostItem: { type: mongoose.Schema.Types.ObjectId, ref: 'LostItem', required: true },
-      similarity: { type: Number, required: true, min: 0, max: 1 },
+      similarity: { type: Number, required: true, min: 0, max: 1 }, // 0-1 scale
+      similarityPercent: { type: Number, min: 0, max: 100 }, // 0-100 scale for frontend
+      method: { type: String, enum: ['text-only', 'text+image', 'itemName+description-xenova'] }, // Comparison method used
+      locationMatch: { type: Boolean, default: true }, // Whether locations match
+      timeValid: { type: Boolean, default: true }, // Whether time validation passed
       matchedAt: { type: Date, default: Date.now }
     }
   ],

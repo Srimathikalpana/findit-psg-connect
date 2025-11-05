@@ -4,7 +4,7 @@ const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
 const stringSimilarity = require('string-similarity');
 const { notifyMatchedUsers } = require('../utils/emailService');
-const { verifyAnswerSemantically } = require('../utils/semanticMatch');
+const { compareTextsSemanticAndLexical } = require('../utils/textSimilarity');
 
 // Verify answer and immediately confirm claim by marking both items as claimed
 exports.verifyAndClaim = async (req, res) => {
@@ -37,18 +37,23 @@ exports.verifyAndClaim = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Items are not available for claiming' });
     }
 
-    // Use semantic verification instead of exact string matching
-    const verificationResult = await verifyAnswerSemantically(
-      (answer || '').trim(),
-      (foundItem.correctAnswer || '').trim()
-    );
+    // Use combined semantic + lexical similarity for verification (40% threshold for rough matching)
+    const providedAnswer = (answer || '').trim();
+    const correctAnswer = (foundItem.correctAnswer || '').trim();
+    
+    console.log(`[verifyAndClaim] Verifying answer using combined semantic + lexical similarity`);
+    const similarityScore = await compareTextsSemanticAndLexical(providedAnswer, correctAnswer);
+    const thresholdPercent = 40; // Lower threshold for rough similarity matching
+    const isVerified = similarityScore >= thresholdPercent;
 
-    if (!verificationResult.isVerified) {
+    console.log(`[verifyAndClaim] Similarity score: ${similarityScore}/100, Threshold: ${thresholdPercent}%, Verified: ${isVerified ? 'YES' : 'NO'}`);
+
+    if (!isVerified) {
       return res.status(200).json({ 
         success: false, 
         message: 'Verification failed. Incorrect answer.',
-        similarity: verificationResult.similarity,
-        threshold: verificationResult.threshold
+        similarity: similarityScore / 100, // Return as 0-1 scale for consistency
+        threshold: thresholdPercent / 100
       });
     }
 
@@ -67,10 +72,14 @@ exports.verifyAndClaim = async (req, res) => {
 
     await claim.save();
 
+    // Remove items from active listings by marking as claimed
+    // Items will no longer appear in active searches for lost/found items
     lostItem.status = 'claimed';
     foundItem.status = 'claimed';
     await lostItem.save();
     await foundItem.save();
+    
+    console.log(`[verifyAndClaim] Claim ${claim._id} created - Lost item ${lostItem._id} and Found item ${foundItem._id} marked as claimed and removed from active listings`);
 
       // Send notification emails (best-effort)
     try {
@@ -138,26 +147,31 @@ exports.verifyAnswer = async (req, res) => {
       });
     }
 
-    // Use semantic verification instead of exact string matching
-    const verificationResult = await verifyAnswerSemantically(
-      answer.trim(),
-      foundItem.correctAnswer.trim()
-    );
+    // Use combined semantic + lexical similarity for verification (40% threshold for rough matching)
+    const providedAnswer = answer.trim();
+    const correctAnswer = foundItem.correctAnswer.trim();
+    
+    console.log(`[verifyAnswer] Verifying answer using combined semantic + lexical similarity`);
+    const similarityScore = await compareTextsSemanticAndLexical(providedAnswer, correctAnswer);
+    const thresholdPercent = 40; // Lower threshold for rough similarity matching
+    const isVerified = similarityScore >= thresholdPercent;
 
-    if (verificationResult.isVerified) {
+    console.log(`[verifyAnswer] Similarity score: ${similarityScore}/100, Threshold: ${thresholdPercent}%, Verified: ${isVerified ? 'YES' : 'NO'}`);
+
+    if (isVerified) {
       return res.json({
         success: true,
         message: 'Answer verified successfully',
-        similarity: verificationResult.similarity,
-        threshold: verificationResult.threshold
+        similarity: similarityScore / 100, // Return as 0-1 scale for consistency
+        threshold: thresholdPercent / 100
       });
     }
 
     return res.json({
       success: false,
       message: 'Incorrect answer',
-      similarity: verificationResult.similarity,
-      threshold: verificationResult.threshold
+      similarity: similarityScore / 100,
+      threshold: thresholdPercent / 100
     });
   } catch (error) {
     console.error('Error verifying answer:', error);
@@ -472,7 +486,8 @@ exports.completeClaim = async (req, res) => {
     claim.status = 'completed';
     claim.approvedDate = new Date();
 
-    // Update items status
+    // Remove items from active listings by marking as claimed
+    // Items will no longer appear in active searches for lost/found items
     const lostItem = await LostItem.findById(claim.lostItem);
     const foundItem = await FoundItem.findById(claim.foundItem);
 
@@ -487,6 +502,8 @@ exports.completeClaim = async (req, res) => {
     }
 
     await claim.save();
+    
+    console.log(`[completeClaim] Claim ${claim._id} completed - Lost item ${lostItem?._id} and Found item ${foundItem?._id} marked as claimed and removed from active listings`);
 
     res.json({
       success: true,
