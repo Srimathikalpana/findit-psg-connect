@@ -1,6 +1,7 @@
 import { useState } from "react"
 import axios from "axios"
 import { useNavigate } from "react-router-dom"
+import { API } from '@/lib/api'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -56,6 +57,8 @@ export const FoundItemForm = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
 
+  // imported API constant from '@/lib/api'
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
@@ -94,7 +97,7 @@ export const FoundItemForm = () => {
       }
 
       const response = await axios.post(
-        'http://localhost:8080/api/found-items',
+        `${API}/api/found-items`,
         {
           itemName: formData.itemName,
           description: formData.description,

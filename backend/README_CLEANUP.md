@@ -54,11 +54,12 @@ You can also trigger cleanup via API:
 
 ```bash
 # Clean all items (requires authentication)
-POST http://localhost:8080/api/cleanup-matches
+# If you have BACKEND_API_BASE set in your environment, use that. Otherwise default to localhost.
+POST ${BACKEND_API_BASE:-http://localhost:8080}/api/cleanup-matches
 Headers: Authorization: Bearer YOUR_TOKEN
 
 # Clean specific item
-POST http://localhost:8080/api/lost-items/:itemId/cleanup-matches
+POST ${BACKEND_API_BASE:-http://localhost:8080}/api/lost-items/:itemId/cleanup-matches
 Headers: Authorization: Bearer YOUR_TOKEN
 ```
 

@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { Header } from "@/components/Header"
+import { API } from "@/lib/api"
 import { ClaimDialog } from "@/components/ClaimDialog"
 import { 
   Search, 
@@ -97,6 +98,7 @@ const Dashboard = () => {
   const { toast } = useToast()
   const navigate = useNavigate()
 
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) {
@@ -172,7 +174,7 @@ const Dashboard = () => {
   const fetchUserData = async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await axios.get('http://localhost:8080/api/auth/profile', {
+  const response = await axios.get(`${API}/api/auth/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -214,7 +216,7 @@ const Dashboard = () => {
       const token = localStorage.getItem('token')
       
       // Fetch items first (without matches for faster initial load)
-      const itemsResponse = await axios.get('http://localhost:8080/api/my-items', {
+  const itemsResponse = await axios.get(`${API}/api/my-items`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -247,7 +249,7 @@ const Dashboard = () => {
               lostItems.map(async (item: LostItem) => {
                 try {
                   const matchesResponse = await axios.get(
-                    `http://localhost:8080/api/lost-items/${item._id}/matches`,
+                    `${API}/api/lost-items/${item._id}/matches`,
                     {
                       headers: {
                         'Authorization': `Bearer ${token}`,
@@ -306,7 +308,7 @@ const Dashboard = () => {
       const token = localStorage.getItem('token')
       const endpoint = type === 'lost' ? 'lost-items' : 'found-items'
       
-      await axios.delete(`http://localhost:8080/api/${endpoint}/${itemId}`, {
+  await axios.delete(`${API}/api/${endpoint}/${itemId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -336,7 +338,7 @@ const Dashboard = () => {
       if (!answer) return
 
       const token = localStorage.getItem('token')
-      const response = await axios.post('http://localhost:8080/api/claims/verify-and-claim', {
+  const response = await axios.post(`${API}/api/claims/verify-and-claim`, {
         lostItemId,
         foundItemId,
         answer

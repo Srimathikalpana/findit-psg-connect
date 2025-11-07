@@ -1,6 +1,5 @@
 import axios from 'axios';
-
-const API_BASE_URL = 'http://localhost:8080';
+import { API as API_BASE_URL } from '@/lib/api'
 
 // Create axios instance with default config
 const adminApi = axios.create({

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Header } from "@/components/Header"
+import { API } from "@/lib/api"
 import { Link } from "react-router-dom"
 import { ArrowRight, Users, MapPin, Clock, Search, Eye } from "lucide-react"
 
@@ -26,6 +27,7 @@ const Index = () => {
   const [recentClaims, setRecentClaims] = useState<RecentClaim[]>([])
   const [claimsLoading, setClaimsLoading] = useState(true)
 
+
   // Animation function
   const animateValue = (start: number, end: number, duration: number, callback: (value: number) => void) => {
     const startTime = performance.now()
@@ -49,7 +51,7 @@ const Index = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await fetch('http://localhost:8080/api/users/stats/public')
+  const response = await fetch(`${API}/api/users/stats/public`)
         const data = await response.json()
         if (data.success) {
           setStats(data.data)
@@ -72,7 +74,7 @@ const Index = () => {
 
     const fetchRecentClaims = async () => {
       try {
-        const response = await fetch('http://localhost:8080/api/recent-claims')
+  const response = await fetch(`${API}/api/recent-claims`)
         const data = await response.json()
         if (data.success) {
           setRecentClaims(data.data)

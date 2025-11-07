@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import axios from "axios"
+import { API } from '@/lib/api'
 
 interface ClaimDialogProps {
   itemId: string
@@ -25,6 +26,8 @@ export function ClaimDialog({ itemId, question, onClaimSubmit }: ClaimDialogProp
   const { toast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
 
+  // imported API constant from '@/lib/api'
+
   const handleSubmit = async () => {
     setIsSubmitting(true)
     try {
@@ -33,7 +36,7 @@ export function ClaimDialog({ itemId, question, onClaimSubmit }: ClaimDialogProp
       const normalizedAnswer = answer.toLowerCase().trim()
       
       const response = await axios.post(
-        `http://localhost:8080/api/claims/verify/${itemId}`,
+        `${API}/api/claims/verify/${itemId}`,
         { 
           answer: normalizedAnswer,
         },

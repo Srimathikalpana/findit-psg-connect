@@ -9,11 +9,12 @@ import { useToast } from "@/hooks/use-toast"
 import { Header } from "@/components/Header"
 import { Mail, Lock, User, School } from "lucide-react"
 import axios from 'axios';
+import { API } from '@/lib/api'
 
 // Student login API call
 const apiStudentLogin = async (email: string, password: string) => {
   try {
-    const response = await axios.post('http://localhost:8080/api/login', { email, password });
+    const response = await axios.post(`${API}/api/login`, { email, password });
     return response.data;
   } catch (error: any) {
     return { success: false, message: error.response?.data?.message || "Login failed" };
@@ -23,7 +24,7 @@ const apiStudentLogin = async (email: string, password: string) => {
 // Admin login API call
 const apiAdminLogin = async (email: string, password: string) => {
   try {
-    const response = await axios.post('http://localhost:8080/admin/login', { email, password });
+    const response = await axios.post(`${API}/admin/login`, { email, password });
     return response.data;
   } catch (error: any) {
     return { success: false, message: error.response?.data?.message || "Admin login failed" };
@@ -32,7 +33,7 @@ const apiAdminLogin = async (email: string, password: string) => {
 
 const apiRegister = async (name: string, email: string, studentId: string, password: string) => {
   try {
-    const response = await axios.post('http://localhost:8080/api/register', { name, email, studentId, password });
+    const response = await axios.post(`${API}/api/register`, { name, email, studentId, password });
     return response.data;
   } catch (error: any) {
     return { success: false, message: error.response?.data?.message || "Registration failed" };
