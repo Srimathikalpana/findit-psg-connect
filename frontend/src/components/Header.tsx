@@ -34,7 +34,7 @@ export const Header = () => {
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center space-x-3">
           <img 
-            src="/public/images/college_logo.png" 
+            src="/images/college_logo.png" 
             alt="PSG Tech Logo" 
             className="h-10 w-10"
           />

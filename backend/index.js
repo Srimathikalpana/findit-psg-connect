@@ -33,6 +33,13 @@ app.use(cors({
     // allow non-browser (curl, Postman) requests when origin is undefined
     if (!origin) return callback(null, true);
     if (corsOrigins.indexOf(origin) !== -1) return callback(null, true);
+    try {
+      // allow Vercel preview and production domains (they end with .vercel.app)
+      const host = new URL(origin).hostname;
+      if (host && host.endsWith('.vercel.app')) return callback(null, true);
+    } catch (e) {
+      // ignore URL parsing errors and fall through to rejection
+    }
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
