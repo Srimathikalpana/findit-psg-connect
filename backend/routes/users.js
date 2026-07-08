@@ -12,5 +12,7 @@ router.delete('/users/:id', auth, admin, userController.deleteUser);
 router.get('/users/:id/activity', auth, admin, userController.getUserActivity);
 router.get('/stats/users', auth, admin, userController.getUserStats);
 router.get('/stats/dashboard', auth, admin, userController.getDashboardStats);
+router.get('/users/stats/public', userController.getPublicStats);
+router.get('/recent-claims', userController.getRecentClaims);
 
 module.exports = router;

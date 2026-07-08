@@ -1,38 +1,31 @@
-// Frontend Configuration for FindIT
-// Copy these settings to your frontend
+// Frontend Configuration generator for FindIT
+// This file builds frontend URLs from an env-provided base (useful when generating examples)
+// Set FRONTEND_API_BASE to the root of your backend (e.g. https://my-backend.onrender.com)
+const BASE = (process.env.FRONTEND_API_BASE || 'http://localhost:8080').replace(/\/$/, '');
 
 const FRONTEND_CONFIG = {
-  // Backend API Base URL
-  API_BASE_URL: 'http://localhost:8080/api',
-  
-  // Authentication Endpoints
+  API_BASE_URL: `${BASE}/api`,
   AUTH: {
-    REGISTER: 'http://localhost:8080/api/auth/register',
-    LOGIN: 'http://localhost:8080/api/auth/login',
-    PROFILE: 'http://localhost:8080/api/auth/profile',
-    UPDATE_PROFILE: 'http://localhost:8080/api/auth/profile'
+    REGISTER: `${BASE}/api/auth/register`,
+    LOGIN: `${BASE}/api/auth/login`,
+    PROFILE: `${BASE}/api/auth/profile`,
+    UPDATE_PROFILE: `${BASE}/api/auth/profile`
   },
-  
-  // Items Endpoints
   ITEMS: {
-    LOST_ITEMS: 'http://localhost:8080/api/lost-items',
-    FOUND_ITEMS: 'http://localhost:8080/api/found-items',
-    MY_ITEMS: 'http://localhost:8080/api/my-items',
-    SEARCH: 'http://localhost:8080/api/search'
+    LOST_ITEMS: `${BASE}/api/lost-items`,
+    FOUND_ITEMS: `${BASE}/api/found-items`,
+    MY_ITEMS: `${BASE}/api/my-items`,
+    SEARCH: `${BASE}/api/search`
   },
-  
-  // Claims Endpoints
   CLAIMS: {
-    CREATE: 'http://localhost:8080/api/claims',
-    GET_USER_CLAIMS: 'http://localhost:8080/api/claims',
-    GET_CLAIM: 'http://localhost:8080/api/claims/:id',
-    UPDATE_STATUS: 'http://localhost:8080/api/claims/:id/status',
-    COMPLETE: 'http://localhost:8080/api/claims/:id/complete',
-    CANCEL: 'http://localhost:8080/api/claims/:id'
+    CREATE: `${BASE}/api/claims`,
+    GET_USER_CLAIMS: `${BASE}/api/claims`,
+    GET_CLAIM: `${BASE}/api/claims/:id`,
+    UPDATE_STATUS: `${BASE}/api/claims/:id/status`,
+    COMPLETE: `${BASE}/api/claims/:id/complete`,
+    CANCEL: `${BASE}/api/claims/:id`
   },
-  
-  // Health Check
-  HEALTH: 'http://localhost:8080/health'
+  HEALTH: `${BASE}/health`
 };
 
 // Example usage in frontend:

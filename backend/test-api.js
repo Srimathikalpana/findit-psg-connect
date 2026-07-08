@@ -1,7 +1,7 @@
 // Test script for FindIT Backend API
 // Run this to test all endpoints
 
-const API_BASE = 'http://localhost:8080';
+const API_BASE = process.env.BACKEND_API_BASE || 'http://localhost:8080';
 
 async function testAPI() {
   console.log('🧪 Testing FindIT Backend API...\n');

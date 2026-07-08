@@ -14,6 +14,14 @@ exports.register = async (req, res) => {
   try {
     const { name, email, studentId, password } = req.body;
 
+    // Check domain restriction for students
+    if (!email.endsWith('@psgtech.ac.in')) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Only PSG Tech email addresses (@psgtech.ac.in) are allowed for registration' 
+      });
+    }
+
     // Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -72,6 +80,14 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Check domain restriction for students
+    if (!email.endsWith('@psgtech.ac.in')) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Only PSG Tech email addresses (@psgtech.ac.in) are allowed for student login' 
+      });
+    }
 
     // Check for user email
     const user = await User.findOne({ email });

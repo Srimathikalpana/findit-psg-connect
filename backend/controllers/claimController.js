@@ -2,10 +2,192 @@ const Claim = require('../models/claim');
 const LostItem = require('../models/lostItem');
 const FoundItem = require('../models/foundItem');
 const User = require('../models/user');
+const stringSimilarity = require('string-similarity');
+const { notifyMatchedUsers } = require('../utils/emailService');
+const { compareTextsSemanticAndLexical } = require('../utils/textSimilarity');
+
+// Verify answer and immediately confirm claim by marking both items as claimed
+exports.verifyAndClaim = async (req, res) => {
+  try {
+    // Ensure authenticated user present
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+    const { lostItemId, foundItemId, answer } = req.body;
+
+    if (!lostItemId || !foundItemId || typeof answer !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'lostItemId, foundItemId and answer are required'
+      });
+    }
+
+    const lostItem = await LostItem.findById(lostItemId);
+    const foundItem = await FoundItem.findById(foundItemId);
+
+    if (!lostItem || !foundItem) {
+      return res.status(404).json({ success: false, message: 'Lost or Found item not found' });
+    }
+
+    if (lostItem.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only claim items linked to your lost report' });
+    }
+
+    if (lostItem.status !== 'active' || foundItem.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Items are not available for claiming' });
+    }
+
+    // Use combined semantic + lexical similarity for verification (40% threshold for rough matching)
+    const providedAnswer = (answer || '').trim();
+    const correctAnswer = (foundItem.correctAnswer || '').trim();
+    
+    console.log(`[verifyAndClaim] Verifying answer using combined semantic + lexical similarity`);
+    const similarityScore = await compareTextsSemanticAndLexical(providedAnswer, correctAnswer);
+    const thresholdPercent = 40; // Lower threshold for rough similarity matching
+    const isVerified = similarityScore >= thresholdPercent;
+
+    console.log(`[verifyAndClaim] Similarity score: ${similarityScore}/100, Threshold: ${thresholdPercent}%, Verified: ${isVerified ? 'YES' : 'NO'}`);
+
+    if (!isVerified) {
+      return res.status(200).json({ 
+        success: false, 
+        message: 'Verification failed. Incorrect answer.',
+        similarity: similarityScore / 100, // Return as 0-1 scale for consistency
+        threshold: thresholdPercent / 100
+      });
+    }
+
+    // Create a completed claim and mark items claimed immediately
+    const claim = new Claim({
+      lostItem: lostItem._id,
+      foundItem: foundItem._id,
+      claimant: req.user._id,
+      finder: foundItem.user,
+      verificationQuestion: foundItem.verificationQuestion,
+      claimantAnswer: answer,
+      verificationStatus: 'approved',
+      status: 'completed',
+      approvedDate: new Date()
+    });
+
+    await claim.save();
+
+    // Remove items from active listings by marking as claimed
+    // Items will no longer appear in active searches for lost/found items
+    lostItem.status = 'claimed';
+    foundItem.status = 'claimed';
+    await lostItem.save();
+    await foundItem.save();
+    
+    console.log(`[verifyAndClaim] Claim ${claim._id} created - Lost item ${lostItem._id} and Found item ${foundItem._id} marked as claimed and removed from active listings`);
+
+      // Send notification emails (best-effort)
+    try {
+      // populate claimant and finder so we have name/email
+      await claim.populate('claimant', 'name email');
+      await claim.populate('finder', 'name email');
+
+      const lostUser = claim.claimant;
+      const foundUser = claim.finder;
+      const itemName = lostItem.itemName || foundItem.itemName || 'item';
+
+      const emailResult = await notifyMatchedUsers(lostUser, foundUser, itemName);
+
+      if ((emailResult.sentToLost || emailResult.sentToFound)) {
+        if (!Array.isArray(claim.notificationsSent)) claim.notificationsSent = [];
+        claim.notificationsSent.push(new Date());
+        await claim.save();
+      }
+
+      if (emailResult.errors && emailResult.errors.length) {
+        console.error('notifyMatchedUsers errors:', emailResult.errors);
+      }
+    } catch (emailErr) {
+      console.error('Error sending notification emails:', emailErr);
+    }
+
+    // Populate finder's user info for contact details
+    await foundItem.populate('user', 'name email studentId');
+
+    // Prepare contact info for the finder
+    const finderContactInfo = {
+      name: foundItem.user?.name || '',
+      email: foundItem.user?.email || '',
+      studentId: foundItem.user?.studentId || '',
+      phone: foundItem.contactInfo?.phone || ''
+    };
+
+    return res.json({
+      success: true,
+      message: 'Claim verified and completed. Items marked as claimed.',
+      data: { 
+        claimId: claim._id, 
+        lostItem, 
+        foundItem,
+        finderContactInfo // Include finder's contact info for instant display
+      }
+    });
+  } catch (error) {
+    console.error('Verify and claim error:', error);
+    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// Verify answer for found item
+exports.verifyAnswer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { answer } = req.body;
+
+    const foundItem = await FoundItem.findById(id);
+    if (!foundItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Found item not found'
+      });
+    }
+
+    // Use combined semantic + lexical similarity for verification (40% threshold for rough matching)
+    const providedAnswer = answer.trim();
+    const correctAnswer = foundItem.correctAnswer.trim();
+    
+    console.log(`[verifyAnswer] Verifying answer using combined semantic + lexical similarity`);
+    const similarityScore = await compareTextsSemanticAndLexical(providedAnswer, correctAnswer);
+    const thresholdPercent = 40; // Lower threshold for rough similarity matching
+    const isVerified = similarityScore >= thresholdPercent;
+
+    console.log(`[verifyAnswer] Similarity score: ${similarityScore}/100, Threshold: ${thresholdPercent}%, Verified: ${isVerified ? 'YES' : 'NO'}`);
+
+    if (isVerified) {
+      return res.json({
+        success: true,
+        message: 'Answer verified successfully',
+        similarity: similarityScore / 100, // Return as 0-1 scale for consistency
+        threshold: thresholdPercent / 100
+      });
+    }
+
+    return res.json({
+      success: false,
+      message: 'Incorrect answer',
+      similarity: similarityScore / 100,
+      threshold: thresholdPercent / 100
+    });
+  } catch (error) {
+    console.error('Error verifying answer:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error verifying answer'
+    });
+  }
+};
 
 // Create Claim
 exports.createClaim = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const { lostItemId, foundItemId, proofOfOwnership, meetingDetails } = req.body;
 
     if (!lostItemId || !foundItemId) {
@@ -90,6 +272,9 @@ exports.createClaim = async (req, res) => {
 // Get User's Claims
 exports.getUserClaims = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const userId = req.user._id;
     const { status, type } = req.query;
 
@@ -131,6 +316,9 @@ exports.getUserClaims = async (req, res) => {
 // Get Claim by ID
 exports.getClaimById = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const { id } = req.params;
     const userId = req.user._id;
 
@@ -184,6 +372,10 @@ exports.updateClaimStatus = async (req, res) => {
       });
     }
 
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
     const claim = await Claim.findById(id);
 
     if (!claim) {
@@ -201,8 +393,8 @@ exports.updateClaimStatus = async (req, res) => {
       });
     }
 
-    // Check if claim is still pending
-    if (claim.status !== 'pending') {
+    // Allow approving a completed claim only if items already marked claimed (idempotency)
+    if (claim.status !== 'pending' && !(claim.status === 'completed' && status === 'approved')) {
       return res.status(400).json({
         success: false,
         message: 'Claim status cannot be updated'
@@ -215,7 +407,30 @@ exports.updateClaimStatus = async (req, res) => {
     }
 
     await claim.save();
+     // If approved, notify both users (finder approved claimant)
+    if (status === 'approved') {
+      try {
+        // populate users and load item names
+        await claim.populate('claimant', 'name email');
+        await claim.populate('finder', 'name email');
 
+        const lostItem = await LostItem.findById(claim.lostItem);
+        const foundItem = await FoundItem.findById(claim.foundItem);
+        const itemName = (lostItem && lostItem.itemName) || (foundItem && foundItem.itemName) || 'item';
+
+        const emailResult = await notifyMatchedUsers(claim.claimant, claim.finder, itemName);
+        if ((emailResult.sentToLost || emailResult.sentToFound)) {
+          if (!Array.isArray(claim.notificationsSent)) claim.notificationsSent = [];
+          claim.notificationsSent.push(new Date());
+          await claim.save();
+        }
+        if (emailResult.errors && emailResult.errors.length) {
+          console.error('notifyMatchedUsers errors on approval:', emailResult.errors);
+        }
+      } catch (emailErr) {
+        console.error('Error sending emails on claim approval:', emailErr);
+      }
+    }
     res.json({
       success: true,
       message: `Claim ${status} successfully`,
@@ -235,6 +450,9 @@ exports.updateClaimStatus = async (req, res) => {
 exports.completeClaim = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const userId = req.user._id;
 
     const claim = await Claim.findById(id);
@@ -268,7 +486,8 @@ exports.completeClaim = async (req, res) => {
     claim.status = 'completed';
     claim.approvedDate = new Date();
 
-    // Update items status
+    // Remove items from active listings by marking as claimed
+    // Items will no longer appear in active searches for lost/found items
     const lostItem = await LostItem.findById(claim.lostItem);
     const foundItem = await FoundItem.findById(claim.foundItem);
 
@@ -283,6 +502,8 @@ exports.completeClaim = async (req, res) => {
     }
 
     await claim.save();
+    
+    console.log(`[completeClaim] Claim ${claim._id} completed - Lost item ${lostItem?._id} and Found item ${foundItem?._id} marked as claimed and removed from active listings`);
 
     res.json({
       success: true,
@@ -342,6 +563,9 @@ exports.getAllClaims = async (req, res) => {
 exports.cancelClaim = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
     const userId = req.user._id;
 
     const claim = await Claim.findById(id);

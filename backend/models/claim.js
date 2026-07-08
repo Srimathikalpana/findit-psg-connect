@@ -11,7 +11,20 @@ const claimSchema = new mongoose.Schema({
     default: 'pending' 
   },
   claimDate: { type: Date, default: Date.now },
+  verificationQuestion: {
+    type: String,
+    required: true
+  },
+  claimantAnswer: String,
+  verificationStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
   approvedDate: { type: Date },
+  notificationsSent: [{
+    type: Date
+  }],
   rejectionReason: { type: String },
   adminNotes: { type: String },
   proofOfOwnership: { type: String }, // URL to proof document

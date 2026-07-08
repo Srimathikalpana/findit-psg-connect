@@ -1,170 +1,106 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
-const createTransporter = () => {
-  return nodemailer.createTransporter({
-    service: 'gmail',
+// Configure transporter
+// For Gmail, using the 'service' shorthand is often safer/easier than manual host/port
+const transporter = nodemailer.createTransport({
+    service: 'gmail',  // Built-in support for Gmail
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS, // MUST be a Google App Password, not login password
+    },
+});
+
+// Verify connection on server start
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ SMTP CONNECTION FAILED:", error);
+  } else {
+    console.log("✅ SMTP SERVER IS READY (Gmail)");
+  }
+});
+
+/**
+ * Notify both users after a claim is confirmed.
+ */
+async function notifyMatchedUsers(lostUser, foundUser, itemName) {
+    const errors = [];
+    let sentToLost = false;
+    let sentToFound = false;
+
+    if (!lostUser || !lostUser.email || !foundUser || !foundUser.email || !itemName) {
+        throw new Error('notifyMatchedUsers requires lostUser, foundUser (with emails) and itemName');
     }
-  });
-};
 
-// Send match notification
-exports.sendMatchNotification = async (lostItem, foundItem, matchScore) => {
-  try {
-    const transporter = createTransporter();
-    
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: lostItem.user.email,
-      subject: 'Potential Match Found for Your Lost Item!',
-      html: `
-        <h2>Potential Match Found!</h2>
-        <p>Hello ${lostItem.user.name},</p>
-        <p>We found a potential match for your lost item:</p>
-        
-        <h3>Your Lost Item:</h3>
-        <ul>
-          <li><strong>Item:</strong> ${lostItem.itemName}</li>
-          <li><strong>Description:</strong> ${lostItem.description}</li>
-          <li><strong>Lost at:</strong> ${lostItem.placeLost}</li>
-          <li><strong>Date:</strong> ${new Date(lostItem.dateLost).toLocaleDateString()}</li>
-        </ul>
-        
-        <h3>Found Item:</h3>
-        <ul>
-          <li><strong>Item:</strong> ${foundItem.itemName}</li>
-          <li><strong>Description:</strong> ${foundItem.description}</li>
-          <li><strong>Found at:</strong> ${foundItem.placeFound}</li>
-          <li><strong>Date:</strong> ${new Date(foundItem.dateFound).toLocaleDateString()}</li>
-        </ul>
-        
-        <p><strong>Match Score:</strong> ${(matchScore * 100).toFixed(1)}%</p>
-        
-        <p>Please log in to your account to review this match and take action if it's your item.</p>
-        
-        <p>Best regards,<br>FindIT Team</p>
-      `
+    const mailToLost = {
+        from: `"FindIt" <${process.env.SMTP_USER}>`,
+        to: lostUser.email,
+        subject: `Your item "${itemName}" has a matching report`,
+        text: `Hello ${lostUser.name || ''},\n\nGood news — a user has reported finding an item that matches your lost item: "${itemName}".\n\nPlease contact the finder:\nName: ${foundUser.name || 'N/A'}\nEmail: ${foundUser.email}\n\nRegards,\nFindIt Team`,
+        html: `<p>Hello ${lostUser.name || ''},</p><p>Good news — a user has reported finding an item that matches your lost item: <strong>${itemName}</strong>.</p><p>Please contact the finder:</p><ul><li>Name: ${foundUser.name || 'N/A'}</li><li>Email: <a href="mailto:${foundUser.email}">${foundUser.email}</a></li></ul><p>Regards,<br/>FindIt Team</p>`,
     };
-    
-    await transporter.sendMail(mailOptions);
-    console.log('Match notification sent successfully');
-  } catch (error) {
-    console.error('Error sending match notification:', error);
-  }
-};
 
-// Send claim notification
-exports.sendClaimNotification = async (claim, recipientType) => {
-  try {
-    const transporter = createTransporter();
-    
-    let subject, to, html;
-    
-    if (recipientType === 'finder') {
-      subject = 'New Claim Request for Your Found Item';
-      to = claim.finder.email;
-      html = `
-        <h2>New Claim Request</h2>
-        <p>Hello ${claim.finder.name},</p>
-        <p>Someone has claimed your found item:</p>
-        
-        <h3>Found Item:</h3>
-        <ul>
-          <li><strong>Item:</strong> ${claim.foundItem.itemName}</li>
-          <li><strong>Description:</strong> ${claim.foundItem.description}</li>
-          <li><strong>Found at:</strong> ${claim.foundItem.placeFound}</li>
-        </ul>
-        
-        <h3>Claimant Details:</h3>
-        <ul>
-          <li><strong>Name:</strong> ${claim.claimant.name}</li>
-          <li><strong>Student ID:</strong> ${claim.claimant.studentId}</li>
-          <li><strong>Email:</strong> ${claim.claimant.email}</li>
-        </ul>
-        
-        <p>Please log in to your account to review and respond to this claim.</p>
-        
-        <p>Best regards,<br>FindIT Team</p>
-      `;
-    } else {
-      subject = 'Claim Status Update';
-      to = claim.claimant.email;
-      html = `
-        <h2>Claim Status Update</h2>
-        <p>Hello ${claim.claimant.name},</p>
-        <p>Your claim status has been updated:</p>
-        
-        <h3>Claim Details:</h3>
-        <ul>
-          <li><strong>Status:</strong> ${claim.status}</li>
-          <li><strong>Item:</strong> ${claim.lostItem.itemName}</li>
-          <li><strong>Found Item:</strong> ${claim.foundItem.itemName}</li>
-        </ul>
-        
-        ${claim.rejectionReason ? `<p><strong>Reason:</strong> ${claim.rejectionReason}</p>` : ''}
-        
-        <p>Please log in to your account for more details.</p>
-        
-        <p>Best regards,<br>FindIT Team</p>
-      `;
+    const mailToFound = {
+        from: `"FindIt" <${process.env.SMTP_USER}>`,
+        to: foundUser.email,
+        subject: `A user has claimed the item "${itemName}" you reported found`,
+        text: `Hello ${foundUser.name || ''},\n\nA user has claimed the item you reported found: "${itemName}".\n\nPlease contact the owner:\nName: ${lostUser.name || 'N/A'}\nEmail: ${lostUser.email}\n\nRegards,\nFindIt Team`,
+        html: `<p>Hello ${foundUser.name || ''},</p><p>A user has claimed the item you reported found: <strong>${itemName}</strong>.</p><p>Please contact the owner:</p><ul><li>Name: ${lostUser.name || 'N/A'}</li><li>Email: <a href="mailto:${lostUser.email}">${lostUser.email}</a></li></ul><p>Regards,<br/>FindIt Team</p>`,
+    };
+
+    try {
+        await transporter.sendMail(mailToLost);
+        sentToLost = true;
+    } catch (err) {
+        errors.push({ to: 'lostUser', error: err.message });
     }
-    
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to,
-      subject,
-      html
-    };
-    
-    await transporter.sendMail(mailOptions);
-    console.log('Claim notification sent successfully');
-  } catch (error) {
-    console.error('Error sending claim notification:', error);
-  }
-};
 
-// Send welcome email
-exports.sendWelcomeEmail = async (user) => {
-  try {
-    const transporter = createTransporter();
-    
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: user.email,
-      subject: 'Welcome to FindIT - Lost & Found Platform',
-      html: `
-        <h2>Welcome to FindIT!</h2>
-        <p>Hello ${user.name},</p>
-        <p>Thank you for registering with FindIT, the PSG Tech Lost & Found platform.</p>
-        
-        <h3>What you can do:</h3>
-        <ul>
-          <li>Report lost items</li>
-          <li>Report found items</li>
-          <li>Search for your lost items</li>
-          <li>Claim items you've lost</li>
-          <li>Track your item status</li>
-        </ul>
-        
-        <p>Your account details:</p>
-        <ul>
-          <li><strong>Name:</strong> ${user.name}</li>
-          <li><strong>Student ID:</strong> ${user.studentId}</li>
-          <li><strong>Email:</strong> ${user.email}</li>
-        </ul>
-        
-        <p>If you have any questions, please contact the admin team.</p>
-        
-        <p>Best regards,<br>FindIT Team</p>
-      `
+    try {
+        await transporter.sendMail(mailToFound);
+        sentToFound = true;
+    } catch (err) {
+        errors.push({ to: 'foundUser', error: err.message });
+    }
+
+    return { sentToLost, sentToFound, errors };
+}
+
+/**
+ * Notify a lost item owner that a potential match was reported.
+ */
+async function notifyPotentialMatch(lostUser, foundItemSummary, lostItemName) {
+    if (!lostUser || !lostUser.email || !foundItemSummary) {
+        throw new Error('notifyPotentialMatch requires lostUser (with email) and foundItemSummary');
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://findit-psg-connect.vercel.app'; // Updated to likely Vercel URL
+    const viewLink = `${frontendUrl}/lost-items/${foundItemSummary.lostItemId || ''}/matches`;
+
+    const mail = {
+        from: `"FindIt" <${process.env.SMTP_USER}>`,
+        to: lostUser.email,
+        subject: `Potential match found for your lost item "${lostItemName || ''}"`,
+        html: `
+            <p>Hello ${lostUser.name || ''},</p>
+            <p>We've found a potential match for your lost item <strong>${lostItemName || ''}</strong>.</p>
+            <p><strong>Found item:</strong> ${foundItemSummary.itemName || ''}<br/>
+            <strong>Reported by:</strong> ${foundItemSummary.reporterName || 'Someone'}</p>
+            <p>Please <a href="${viewLink}">visit the app</a> to review the match.</p>
+            <p>Regards,<br/>FindIt Team</p>
+        `
     };
-    
-    await transporter.sendMail(mailOptions);
-    console.log('Welcome email sent successfully');
-  } catch (error) {
-    console.error('Error sending welcome email:', error);
-  }
+
+    try {
+        await transporter.sendMail(mail);
+        return { sent: true };
+    } catch (err) {
+        console.error('notifyPotentialMatch error:', err);
+        return { sent: false, error: err.message };
+    }
+}
+
+// CORRECT WAY TO EXPORT EVERYTHING
+module.exports = {
+    transporter,
+    notifyMatchedUsers,
+    notifyPotentialMatch
 };

@@ -1,5 +1,7 @@
 import { useState } from "react"
 import axios from "axios"
+import { useNavigate } from "react-router-dom"
+import { API } from '@/lib/api'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -7,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Search, MapPin, Calendar, Package } from "lucide-react"
+import { Search, MapPin, Calendar, Package, CheckCircle2, Loader2, Image as ImageIcon, X } from "lucide-react"
 
 const locations = [
   "Library",
@@ -43,29 +45,55 @@ export const LostItemForm = () => {
     category: "",
     color: "",
     brand: "",
-    contactInfo: ""
+    contactPhone: ""
   })
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const { toast } = useToast()
+  const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success'>('idle')
+
+  // imported API constant from '@/lib/api'
 
   const handleSubmit = async(e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setSubmitStatus('submitting')
 
      try {
       const token = localStorage.getItem('token')
-      console.log('Submitting with token:', token?.substring(0, 20) + '...');
       if (!token) {
         toast({
           title: "Authentication Error",
           description: "Please login to report a lost item",
           variant: "destructive"
         })
+        setIsSubmitting(false)
+        setSubmitStatus('idle')
         return
       }
 
+      // Convert image to base64 if selected
+      let imageUrl = null;
+      if (imageFile) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error('Failed to convert image to base64'));
+            }
+          };
+          reader.onerror = reject;
+        });
+        reader.readAsDataURL(imageFile);
+        imageUrl = await base64Promise;
+      }
+
       const response = await axios.post(
-        'http://localhost:8080/api/lost-items',
+        `${API}/api/lost-items`,
         {
           itemName: formData.itemName,
           description: formData.description,
@@ -74,34 +102,72 @@ export const LostItemForm = () => {
           category: formData.category,
           color: formData.color,
           brand: formData.brand,
-          contactInfo: formData.contactInfo
+          contactInfo: { phone: formData.contactPhone },
+          imageUrl: imageUrl
         },
         {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          withCredentials: true       }
+          withCredentials: true
+        }
       )  
+      
     if (response.data.success) {
+        const newItem = response.data.data
+        
+        // OPTIMISTIC UPDATE: Add to cache immediately
+        const cachedData = sessionStorage.getItem('dashboard_data')
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData)
+            // Add new lost item to cache (with empty matches initially)
+            parsed.lostItems = [...(parsed.lostItems || []), {
+              ...newItem,
+              potentialMatches: []
+            }]
+            sessionStorage.setItem('dashboard_data', JSON.stringify(parsed))
+            sessionStorage.setItem('dashboard_timestamp', Date.now().toString())
+          } catch (e) {
+            console.error('Error updating cache:', e)
+          }
+        }
+        
+        // Show success message
+        setSubmitStatus('success')
         toast({
-          title: "Lost item reported successfully!",
-          description: "We'll notify you if someone finds your item.",
+          title: "Your report has been submitted successfully! ",
+          description: "Redirecting to dashboard...",
         })
-    // Reset form
-    setFormData({
-      itemName: "",
-      description: "",
-      dateLost: "",
-      location: "",
-      category: "",
-      color: "",
-      brand: "",
-      contactInfo: ""
-    })
-  }
+        
+        // Clear cache flag to force refresh when dashboard loads
+        sessionStorage.setItem('dashboard_needs_refresh', 'true')
+        
+        // Reset form
+        setFormData({
+          itemName: "",
+          description: "",
+          dateLost: "",
+          location: "",
+          category: "",
+          color: "",
+          brand: "",
+          contactPhone: ""
+        })
+        setImagePreview(null)
+        setImageFile(null)
+        
+        // Navigate immediately after short delay to show success message
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true })
+          // Trigger dashboard refresh event
+          window.dispatchEvent(new CustomEvent('dashboard-refresh'))
+        }, 800)
+    }
   } catch (error: any) {
     console.error('Submission error:', error.response?.data || error.message);
+    setSubmitStatus('idle')
       toast({
       title: "Error reporting lost item",
       description: error.response?.data?.message || "Something went wrong",
@@ -227,17 +293,104 @@ export const LostItemForm = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="contactInfo">Contact Information (Optional)</Label>
+            <Label htmlFor="image" className="flex items-center gap-2">
+              <ImageIcon className="h-4 w-4" />
+              Item Image (Optional)
+            </Label>
+            {imagePreview ? (
+              <div className="relative">
+                <img 
+                  src={imagePreview} 
+                  alt="Preview" 
+                  className="w-full h-48 object-cover rounded-md border"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={() => {
+                    setImagePreview(null);
+                    setImageFile(null);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center w-full">
+                <label
+                  htmlFor="image"
+                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <ImageIcon className="w-8 h-8 mb-2 text-gray-400" />
+                    <p className="mb-2 text-sm text-gray-500">
+                      <span className="font-semibold">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-gray-500">PNG, JPG, GIF (MAX. 5MB)</p>
+                  </div>
+                  <Input
+                    id="image"
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 5 * 1024 * 1024) {
+                          toast({
+                            title: "File too large",
+                            description: "Image must be less than 5MB",
+                            variant: "destructive"
+                          });
+                          return;
+                        }
+                        setImageFile(file);
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setImagePreview(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="contactPhone">Phone Number *</Label>
             <Input
-              id="contactInfo"
-              placeholder="Your phone number or additional contact details"
-              value={formData.contactInfo}
-              onChange={(e) => setFormData({...formData, contactInfo: e.target.value})}
+              id="contactPhone"
+              placeholder="eg: 983*******"
+              required
+              pattern="\d{7,15}"
+              value={formData.contactPhone}
+              onChange={(e) => setFormData({...formData, contactPhone: e.target.value})}
             />
           </div>
 
-          <Button type="submit" className="w-full" size="lg">
-            Report Lost Item
+          <Button 
+            type="submit" 
+            className="w-full" 
+            size="lg"
+            disabled={isSubmitting || submitStatus === 'success'}
+          >
+            {submitStatus === 'success' ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Submitted! Redirecting...
+              </>
+            ) : isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              "Report Lost Item"
+            )}
           </Button>
         </form>
       </CardContent>

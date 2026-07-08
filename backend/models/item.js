@@ -14,8 +14,42 @@ const itemSchema = new mongoose.Schema({
   color: { type: String },
   brand: { type: String },
   contactInfo: {
-    phone: String,
+    phone: {
+      type: String,
+      required: false,
+      validate: {
+        validator: function(v) {
+          return /^\d{7,15}$/.test((v || '').toString());
+        },
+        message: 'phone must be a numeric string (7-15 digits)'
+      }
+    },
     email: String
+  },
+  // Add verification fields
+  verificationQuestion: { 
+    type: String,
+    required: function() { return this.type === 'found'; } // Only required for found items
+  },
+  correctAnswer: {
+    type: String,
+    required: function() { return this.type === 'found'; } // Only required for found items
+  },
+  // Add type field to distinguish between lost and found items
+  type: {
+    type: String,
+    enum: ['lost', 'found'],
+    required: true
+  },
+  // AI embedding for semantic matching
+  descriptionEmbedding: {
+    type: [Number],
+    default: null
+  },
+  // Answer embedding for verification
+  answerEmbedding: {
+    type: [Number],
+    default: null
   }
 }, { timestamps: true });
 

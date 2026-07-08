@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { LogOut, User, LayoutDashboard } from "lucide-react"
+import { LogOut, Menu, X } from "lucide-react"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 export const Header = () => {
   const location = useLocation()
@@ -26,12 +27,14 @@ export const Header = () => {
     navigate('/')
   }
 
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80">
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center space-x-3">
           <img 
-            src="/public/images/college_logo.png" 
+            src="/images/college_logo.png" 
             alt="PSG Tech Logo" 
             className="h-10 w-10"
           />
@@ -41,6 +44,7 @@ export const Header = () => {
           </div>
         </Link>
 
+        {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
           <Link 
             to="/" 
@@ -71,19 +75,55 @@ export const Header = () => {
         </nav>
 
         <div className="flex items-center space-x-4">
-          {isAuthenticated ? (
-            <div className="flex items-center space-x-3">
-              <Link to="/dashboard">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <LayoutDashboard className="h-4 w-4" />
-                  Dashboard
-                </Button>
-              </Link>
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" />
-                Logout
+          {/* Mobile Menu */}
+          <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+            <SheetTrigger asChild className="md:hidden">
+              <Button variant="ghost" size="icon">
+                <Menu className="h-5 w-5" />
+                <span className="sr-only">Toggle menu</span>
               </Button>
-            </div>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64">
+              <nav className="flex flex-col space-y-4 mt-8">
+                <Link 
+                  to="/"
+                  onClick={() => setIsMobileMenuOpen(false)} 
+                  className={`text-sm font-medium transition-colors hover:text-primary ${
+                    location.pathname === '/' ? 'text-primary' : 'text-muted-foreground'
+                  }`}
+                >
+                  Home
+                </Link>
+                <Link 
+                  to="/about"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`text-sm font-medium transition-colors hover:text-primary ${
+                    location.pathname === '/about' ? 'text-primary' : 'text-muted-foreground'
+                  }`}
+                >
+                  About Us
+                </Link>
+                {isAuthenticated && (
+                  <Link 
+                    to="/dashboard"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`text-sm font-medium transition-colors hover:text-primary ${
+                      location.pathname === '/dashboard' ? 'text-primary' : 'text-muted-foreground'
+                    }`}
+                  >
+                    Dashboard
+                  </Link>
+                )}
+              </nav>
+            </SheetContent>
+          </Sheet>
+
+          {/* Auth Button */}
+          {isAuthenticated ? (
+            <Button variant="outline" size="sm" onClick={handleLogout}>
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
           ) : (
             <Link to="/login">
               <Button size="sm">

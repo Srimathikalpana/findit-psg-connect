@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -8,12 +9,39 @@ const authRoutes = require('./routes/auth');
 const itemsRoutes = require('./routes/items');
 const claimsRoutes = require('./routes/claims');
 const usersRoutes = require('./routes/users');
+const adminRoutes = require('./routes/admin');
+const compareRoutes = require('./routes/compareRoutes');
 
 const app = express();
 
 // Enhanced CORS configuration for frontend support
+// Configure allowed origins from env (comma-separated) with sensible localhost fallbacks.
+// Set an env var named ALLOWED_ORIGINS or FRONTEND_ORIGINS on Render with your Vercel frontend URL
+// e.g. ALLOWED_ORIGINS=https://your-frontend.vercel.app
+const allowedFromEnv = process.env.ALLOWED_ORIGINS || process.env.FRONTEND_ORIGINS || '';
+const allowedOrigins = allowedFromEnv.split(',').map(s => s.trim()).filter(Boolean);
+const defaultLocalOrigins = [
+  'http://localhost:8080',
+  'http://localhost:8081',
+  'http://localhost:3000',
+  'http://localhost:5173'
+];
+const corsOrigins = Array.from(new Set([...defaultLocalOrigins, ...allowedOrigins]));
+
 app.use(cors({
-  origin: ['http://localhost:8080', 'http://localhost:8081', 'http://localhost:3000', 'http://localhost:5173'],
+  origin: function(origin, callback) {
+    // allow non-browser (curl, Postman) requests when origin is undefined
+    if (!origin) return callback(null, true);
+    if (corsOrigins.indexOf(origin) !== -1) return callback(null, true);
+    try {
+      // allow Vercel preview and production domains (they end with .vercel.app)
+      const host = new URL(origin).hostname;
+      if (host && host.endsWith('.vercel.app')) return callback(null, true);
+    } catch (e) {
+      // ignore URL parsing errors and fall through to rejection
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -43,6 +71,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api', itemsRoutes);
 app.use('/api', claimsRoutes);
 app.use('/api', usersRoutes);
+app.use('/api', compareRoutes);
+app.use('/admin', adminRoutes); 
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -83,5 +113,5 @@ app.listen(PORT, () => {
   console.log(`📧 Email notifications: ${process.env.EMAIL_USER ? 'Enabled' : 'Disabled'}`);
   console.log(`🔐 JWT Secret: ${process.env.JWT_SECRET ? 'Configured' : 'Missing'}`);
   console.log(`🗄️  Database: ${process.env.MONGODB_URI ? 'Configured' : 'Missing'}`);
-  console.log(`🌐 CORS enabled for: localhost:8080, localhost:8081, localhost:3000, localhost:5173`);
+  console.log(`🌐 CORS enabled for: ${corsOrigins.join(', ')}`);
 });
