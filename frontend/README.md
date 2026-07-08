@@ -1,73 +1,49 @@
-# Welcome to your Lovable project
+# FindIT Frontend
 
-## Project info
+FindIT is the PSG Tech lost-and-found platform. This frontend provides the student-facing experience for reporting lost items, posting found items, browsing the latest activity, and accessing the authenticated dashboard.
 
-**URL**: https://lovable.dev/projects/db2fde66-fc59-43c5-b9c3-9bb2a096cb12
+## What this app does
 
-## How can I edit this code?
+- Lets users report items they lost or found
+- Provides a landing page with quick actions and recent activity
+- Supports sign-in and a protected dashboard
+- Connects to the backend API for profile and item data
+- Uses a modern React + TypeScript UI built with Vite, Tailwind CSS, and shadcn/ui
 
-There are several ways of editing your application.
+## Pages
 
-**Use Lovable**
+- `/` Home and reporting entry point
+- `/login` Authentication screen
+- `/about` Project overview
+- `/dashboard` Personal dashboard for signed-in users
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/db2fde66-fc59-43c5-b9c3-9bb2a096cb12) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Local setup
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+By default, the app runs on the Vite dev server. Make sure the backend API is running as well so login and dashboard requests can succeed.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Project structure
 
-**Use GitHub Codespaces**
+- `src/pages` contains the main routed pages
+- `src/components` contains reusable UI and forms
+- `src/components/ui` contains the shadcn/ui primitives
+- `src/hooks` contains shared React hooks
+- `src/lib` contains shared utility helpers
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Tech stack
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
 - React
-- shadcn-ui
+- TypeScript
+- Vite
 - Tailwind CSS
+- shadcn/ui
+- React Router
+- TanStack Query
 
-## How can I deploy this project?
+## Notes
 
-Simply open [Lovable](https://lovable.dev/projects/db2fde66-fc59-43c5-b9c3-9bb2a096cb12) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+The frontend is designed to work with the Express and MongoDB backend in the parent project. Authentication uses a token stored in local storage, and dashboard requests are sent to the backend API on `http://localhost:8080`.
